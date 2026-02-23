@@ -8,11 +8,9 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  /* padding: 0.375rem 0.5rem;
-  background-color: rgba(10, 26, 31, 0.8);
+  padding: 0.375rem 0.8rem;
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 0.75rem; */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
@@ -70,6 +68,18 @@
   font-weight: 600 !important;
   transition: all 200ms ease !important;
   min-width: 5rem !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+.run-btn-active {
+  background-color: rgba(255, 100, 100, 0.15) !important;
+  color: #ff6464 !important;
+}
+
+.run-btn-inactive {
+  background-color: rgba(0, 255, 213, 0.15) !important;
+  color: #00ffd5 !important;
 }
 
 .action-bar-obstacle-btn {
@@ -78,5 +88,16 @@
   border-radius: 0.375rem !important;
   transition: all 200ms ease !important;
   display: flex !important;
+  align-items: center !important;
   gap: 0.375rem !important;
+}
+
+.obstacle-btn-inactive {
+  background: transparent !important;
+  color: #a1a1aa !important;
+}
+
+.obstacle-btn-active-place {
+  background-color: rgba(0, 255, 213, 0.15) !important;
+  color: #00ffd5 !important;
 }

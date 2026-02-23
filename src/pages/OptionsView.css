@@ -66,6 +66,12 @@
   height: 1.75rem !important;
   border-color: #3f3f46 !important;
   transition: all 180ms;
+  display: inline-flex !important;
+  align-items: center !important;
+  font-size: 0.8rem !important;
+  border-radius: 0.5rem !important;
+  padding: 0.5rem 1rem !important;
+  color: white;
 }
 
 .options-reset-btn:hover {
