@@ -20,7 +20,6 @@ import type {
   InputValues,
   Method,
   RenderMode,
-  SimulationAppearance,
   SimulationOptions,
   SimulationSource,
   TrackingOptions,
@@ -76,6 +75,27 @@ export type SimulationFrameRecord = {
 };
 
 /**
+ * Per-method aggregate timing breakdown.
+ *
+ * @property method - Compute method name.
+ * @property frameCount - Number of frames executed with this method.
+ * @property avgSetupTime - Mean setup/buffer time (ms).
+ * @property avgComputeTime - Mean compute kernel time (ms).
+ * @property avgRenderTime - Mean render time (ms).
+ * @property avgReadbackTime - Mean GPU/WASM readback time (ms).
+ * @property avgTotalTime - Mean total frame time (ms).
+ */
+export type MethodSummary = {
+  method: string;
+  frameCount: number;
+  avgSetupTime: number;
+  avgComputeTime: number;
+  avgRenderTime: number;
+  avgReadbackTime: number;
+  avgTotalTime: number;
+};
+
+/**
  * Aggregate statistics for a simulation run.
  *
  * @property frameCount - Total number of frames in the report.
@@ -83,6 +103,7 @@ export type SimulationFrameRecord = {
  * @property totalExecutionMs - Sum of all frame execution times.
  * @property averageExecutionMs - Mean execution time per frame.
  * @property errorCount - Number of errors recorded during the run.
+ * @property methodSummaries - Per-method timing breakdowns.
  */
 export type SimulationRunSummary = {
   frameCount: number;
@@ -90,6 +111,7 @@ export type SimulationRunSummary = {
   totalExecutionMs: number;
   averageExecutionMs: number;
   errorCount: number;
+  methodSummaries: MethodSummary[];
 };
 
 /**
@@ -99,8 +121,7 @@ export type SimulationRunSummary = {
  * @property startedAt - Unix timestamp when the simulation was constructed.
  * @property endedAt - Unix timestamp when {@link SimulationTracker.complete} was called.
  * @property source - The simulation source kind and code.
- * @property configuration - Snapshot of the simulation options, appearance, and inputs.
- * @property environment - Runtime device, browser, and GPU metrics.
+ * @property configuration - Snapshot of the simulation options and inputs.
  * @property metadata - Arbitrary caller-supplied metadata.
  */
 export type SimulationRunMetadata = {
@@ -113,20 +134,22 @@ export type SimulationRunMetadata = {
   };
   configuration: {
     options: SimulationOptions;
-    appearance: SimulationAppearance;
     requiredInputs: string[];
     definedInputs: CompilationResult["definedInputs"];
   };
-  environment?: RuntimeMetrics;
   metadata?: Record<string, unknown>;
 };
 
 /**
  * Complete tracking report for a simulation run, combining metadata,
- * frame records, logs, errors, and summary statistics.
+ * frame records, logs, errors, environment, and summary statistics.
+ *
+ * Environment is at the top level since it describes the session, not a
+ * per-method property.
  */
 export type SimulationTrackingReport = {
   run: SimulationRunMetadata;
+  environment?: RuntimeMetrics;
   frames: SimulationFrameRecord[];
   logs: SimulationLogEntry[];
   errors: SimulationErrorEntry[];
@@ -157,6 +180,7 @@ const DEFAULT_TRACKING_OPTIONS: TrackingOptions = {
   captureAgentStates: true,
   captureLogs: true,
   captureDeviceMetrics: true,
+  captureRawArrays: false,
 };
 
 /**
@@ -207,14 +231,16 @@ const cloneAgents = (agents: Agent[]): Agent[] => {
 /**
  * Recursively sanitise an input value for safe JSON serialisation.
  *
- * Typed arrays are replaced with `{ type, length }` descriptors;
- * functions are replaced with `'[Function]'`.
+ * Typed arrays are replaced with `{ type, length }` descriptors by default;
+ * when `keepArrays` is true they are converted to regular number arrays.
+ * Functions are always replaced with `'[Function]'`.
  *
  * @param value - The raw input value.
+ * @param keepArrays - Preserve full typed array contents.
  * @returns A JSON-safe representation.
  * @internal
  */
-const sanitizeInputValue = (value: unknown): unknown => {
+const sanitizeInputValue = (value: unknown, keepArrays = false): unknown => {
   if (
     typeof value === "number" ||
     typeof value === "string" ||
@@ -255,6 +281,9 @@ const sanitizeInputValue = (value: unknown): unknown => {
   }
 
   if (value instanceof Float32Array || value instanceof Uint32Array) {
+    if (keepArrays) {
+      return Array.from(value);
+    }
     return {
       type: value.constructor.name,
       length: value.length,
@@ -270,7 +299,7 @@ const sanitizeInputValue = (value: unknown): unknown => {
     for (const [key, nested] of Object.entries(
       value as Record<string, unknown>,
     )) {
-      result[key] = sanitizeInputValue(nested);
+      result[key] = sanitizeInputValue(nested, keepArrays);
     }
     return result;
   }
@@ -293,6 +322,7 @@ export class SimulationTracker {
   private readonly frames: SimulationFrameRecord[] = [];
   private readonly logs: SimulationLogEntry[] = [];
   private readonly errors: SimulationErrorEntry[] = [];
+  private environment?: RuntimeMetrics;
   private readonly logListener?: (
     level: LogLevel,
     context: string,
@@ -308,7 +338,6 @@ export class SimulationTracker {
   constructor(params: {
     source: SimulationSource;
     options: SimulationOptions;
-    appearance: SimulationAppearance;
     compilationResult: CompilationResult;
     tracking?: Partial<TrackingOptions>;
     metadata?: Record<string, unknown>;
@@ -334,7 +363,6 @@ export class SimulationTracker {
       },
       configuration: {
         options: { ...params.options },
-        appearance: { ...params.appearance },
         requiredInputs: [...params.compilationResult.requiredInputs],
         definedInputs: params.compilationResult.definedInputs.map((def) => ({
           ...def,
@@ -362,8 +390,7 @@ export class SimulationTracker {
   /**
    * Asynchronously collect runtime device, browser, and GPU metrics.
    *
-   * The results are stored in `run.environment` for inclusion in
-   * tracking reports.
+   * The results are stored for inclusion in tracking reports.
    */
   public async collectEnvironmentMetrics(): Promise<void> {
     if (!this.options.enabled || !this.options.captureDeviceMetrics) {
@@ -371,7 +398,7 @@ export class SimulationTracker {
     }
 
     try {
-      this.run.environment = await collectRuntimeMetrics();
+      this.environment = await collectRuntimeMetrics();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Failed to collect runtime metrics: ${message}`);
@@ -407,7 +434,7 @@ export class SimulationTracker {
         ? Object.fromEntries(
             Object.entries(params.inputs ?? {}).map(([key, value]) => [
               key,
-              sanitizeInputValue(value),
+              sanitizeInputValue(value, this.options.captureRawArrays),
             ]),
           )
         : undefined,
@@ -496,28 +523,73 @@ export class SimulationTracker {
       0,
     );
 
+    // Build per-method summaries
+    const methodGroups = new Map<
+      string,
+      {
+        setup: number;
+        compute: number;
+        render: number;
+        readback: number;
+        total: number;
+        count: number;
+      }
+    >();
+    for (const frame of filteredFrames) {
+      const perf = frame.performance;
+      if (!perf) continue;
+      let group = methodGroups.get(frame.method);
+      if (!group) {
+        group = {
+          setup: 0,
+          compute: 0,
+          render: 0,
+          readback: 0,
+          total: 0,
+          count: 0,
+        };
+        methodGroups.set(frame.method, group);
+      }
+      group.setup += perf.setupTime ?? 0;
+      group.compute += perf.computeTime ?? 0;
+      group.render += perf.renderTime ?? 0;
+      group.readback += perf.readbackTime ?? 0;
+      group.total += perf.totalExecutionTime;
+      group.count += 1;
+    }
+
+    const methodSummaries: MethodSummary[] = [];
+    for (const [method, g] of methodGroups) {
+      methodSummaries.push({
+        method,
+        frameCount: g.count,
+        avgSetupTime: g.count > 0 ? g.setup / g.count : 0,
+        avgComputeTime: g.count > 0 ? g.compute / g.count : 0,
+        avgRenderTime: g.count > 0 ? g.render / g.count : 0,
+        avgReadbackTime: g.count > 0 ? g.readback / g.count : 0,
+        avgTotalTime: g.count > 0 ? g.total / g.count : 0,
+      });
+    }
+
     return {
       run: {
         ...this.run,
         configuration: {
           options: { ...this.run.configuration.options },
-          appearance: { ...this.run.configuration.appearance },
           requiredInputs: [...this.run.configuration.requiredInputs],
           definedInputs: this.run.configuration.definedInputs.map((input) => ({
             ...input,
           })),
         },
-        environment: this.run.environment
-          ? {
-              device: { ...this.run.environment.device },
-              browser: { ...this.run.environment.browser },
-              gpu: this.run.environment.gpu
-                ? { ...this.run.environment.gpu }
-                : undefined,
-            }
-          : undefined,
         metadata: this.run.metadata ? { ...this.run.metadata } : undefined,
       },
+      environment: this.environment
+        ? {
+            device: { ...this.environment.device },
+            browser: { ...this.environment.browser },
+            gpu: this.environment.gpu ? { ...this.environment.gpu } : undefined,
+          }
+        : undefined,
       frames: frameView,
       logs:
         filter?.includeLogs === false
@@ -533,6 +605,7 @@ export class SimulationTracker {
             ? totalExecutionMs / filteredFrames.length
             : 0,
         errorCount: this.errors.length,
+        methodSummaries,
       },
     };
   }

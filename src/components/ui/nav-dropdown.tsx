@@ -22,6 +22,7 @@ export interface NavDropdownProps {
   options: NavDropdownOption[];
   onValueChange: (value: string) => void;
   className?: string;
+  disabled?: boolean;
 }
 
 export function NavDropdown({
@@ -31,14 +32,21 @@ export function NavDropdown({
   options,
   onValueChange,
   className,
+  disabled,
 }: NavDropdownProps) {
   return (
-    <div className={cn("flex items-center gap-5", className)}>
+    <div
+      className={cn(
+        "flex items-center gap-5",
+        disabled && "opacity-40 pointer-events-none",
+        className,
+      )}
+    >
       <div className="panel-header uppercase text-[10px] tracking-wider mt-0.5 font-bold !text-tropicalTeal">
         {icon}
         {label}
       </div>
-      <Select value={value} onValueChange={onValueChange}>
+      <Select value={value} onValueChange={onValueChange} disabled={disabled}>
         <SelectTrigger className="h-8 border-none bg-transparent hover:bg-white/5 focus:ring-0 shadow-none text-xs font-bold text-white px-2 w-auto gap-2">
           <SelectValue />
         </SelectTrigger>

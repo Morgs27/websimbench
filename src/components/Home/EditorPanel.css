@@ -169,6 +169,84 @@
   font-weight: 500;
 }
 
+.header-icon-btn--active {
+  color: #00ffd5 !important;
+  background-color: rgba(0, 255, 213, 0.12) !important;
+}
+
+.header-icon-btn--active:hover {
+  background-color: rgba(0, 255, 213, 0.18) !important;
+}
+
+/* ── Benchmark toggle button ── */
+.benchmark-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 200ms ease-in-out;
+  font-family: inherit;
+}
+
+.benchmark-toggle:hover {
+  color: #e5e7eb;
+  border-color: rgba(255, 255, 255, 0.2);
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.benchmark-toggle--on {
+  color: #00ffd5;
+  border-color: rgba(0, 255, 213, 0.4);
+  background-color: rgba(0, 255, 213, 0.1);
+}
+
+.benchmark-toggle--on:hover {
+  background-color: rgba(0, 255, 213, 0.16);
+  border-color: rgba(0, 255, 213, 0.55);
+}
+
+/* Pill track */
+.benchmark-toggle-pill {
+  position: relative;
+  display: inline-block;
+  width: 1.6rem;
+  height: 0.85rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 200ms ease-in-out;
+  flex-shrink: 0;
+}
+
+.benchmark-toggle--on .benchmark-toggle-pill {
+  background: rgba(0, 255, 213, 0.35);
+}
+
+/* Knob */
+.benchmark-toggle-knob {
+  position: absolute;
+  top: 0.1rem;
+  left: 0.1rem;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: #9ca3af;
+  transition: all 200ms ease-in-out;
+}
+
+.benchmark-toggle--on .benchmark-toggle-knob {
+  left: calc(100% - 0.75rem);
+  background: #00ffd5;
+  box-shadow: 0 0 6px rgba(0, 255, 213, 0.6);
+}
+
 .editor-compiling {
   display: flex;
   align-items: center;

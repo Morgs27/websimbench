@@ -5810,7 +5810,8 @@ var DEFAULT_TRACKING_OPTIONS = {
   captureFrameInputs: false,
   captureAgentStates: true,
   captureLogs: true,
-  captureDeviceMetrics: true
+  captureDeviceMetrics: true,
+  captureRawArrays: false
 };
 var mapLogLevel = (level) => {
   if (level === 1 /* Error */) return "error";
@@ -5827,7 +5828,7 @@ var generateRunId = () => {
 var cloneAgents = (agents) => {
   return agents.map((agent) => ({ ...agent }));
 };
-var sanitizeInputValue = (value) => {
+var sanitizeInputValue = (value, keepArrays = false) => {
   if (typeof value === "number" || typeof value === "string" || typeof value === "boolean" || value === null) {
     return value;
   }
@@ -5852,6 +5853,9 @@ var sanitizeInputValue = (value) => {
     return value;
   }
   if (value instanceof Float32Array || value instanceof Uint32Array) {
+    if (keepArrays) {
+      return Array.from(value);
+    }
     return {
       type: value.constructor.name,
       length: value.length
@@ -5865,7 +5869,7 @@ var sanitizeInputValue = (value) => {
     for (const [key, nested] of Object.entries(
       value
     )) {
-      result[key] = sanitizeInputValue(nested);
+      result[key] = sanitizeInputValue(nested, keepArrays);
     }
     return result;
   }
@@ -5896,7 +5900,6 @@ var SimulationTracker = class {
       },
       configuration: {
         options: { ...params.options },
-        appearance: { ...params.appearance },
         requiredInputs: [...params.compilationResult.requiredInputs],
         definedInputs: params.compilationResult.definedInputs.map((def) => ({
           ...def
@@ -5920,15 +5923,14 @@ var SimulationTracker = class {
   /**
    * Asynchronously collect runtime device, browser, and GPU metrics.
    *
-   * The results are stored in `run.environment` for inclusion in
-   * tracking reports.
+   * The results are stored for inclusion in tracking reports.
    */
   async collectEnvironmentMetrics() {
     if (!this.options.enabled || !this.options.captureDeviceMetrics) {
       return;
     }
     try {
-      this.run.environment = await collectRuntimeMetrics();
+      this.environment = await collectRuntimeMetrics();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Failed to collect runtime metrics: ${message}`);
@@ -5952,7 +5954,7 @@ var SimulationTracker = class {
       inputSnapshot: this.options.captureFrameInputs ? Object.fromEntries(
         Object.entries(params.inputs ?? {}).map(([key, value]) => [
           key,
-          sanitizeInputValue(value)
+          sanitizeInputValue(value, this.options.captureRawArrays)
         ])
       ) : void 0,
       performance: params.performance ? { ...params.performance } : void 0
@@ -6019,24 +6021,51 @@ var SimulationTracker = class {
       (total, frame) => total + (frame.performance?.totalExecutionTime ?? 0),
       0
     );
+    const methodGroups = /* @__PURE__ */ new Map();
+    for (const frame of filteredFrames) {
+      const perf = frame.performance;
+      if (!perf) continue;
+      let group = methodGroups.get(frame.method);
+      if (!group) {
+        group = { setup: 0, compute: 0, render: 0, readback: 0, total: 0, count: 0 };
+        methodGroups.set(frame.method, group);
+      }
+      group.setup += perf.setupTime ?? 0;
+      group.compute += perf.computeTime ?? 0;
+      group.render += perf.renderTime ?? 0;
+      group.readback += perf.readbackTime ?? 0;
+      group.total += perf.totalExecutionTime;
+      group.count += 1;
+    }
+    const methodSummaries = [];
+    for (const [method, g] of methodGroups) {
+      methodSummaries.push({
+        method,
+        frameCount: g.count,
+        avgSetupTime: g.count > 0 ? g.setup / g.count : 0,
+        avgComputeTime: g.count > 0 ? g.compute / g.count : 0,
+        avgRenderTime: g.count > 0 ? g.render / g.count : 0,
+        avgReadbackTime: g.count > 0 ? g.readback / g.count : 0,
+        avgTotalTime: g.count > 0 ? g.total / g.count : 0
+      });
+    }
     return {
       run: {
         ...this.run,
         configuration: {
           options: { ...this.run.configuration.options },
-          appearance: { ...this.run.configuration.appearance },
           requiredInputs: [...this.run.configuration.requiredInputs],
           definedInputs: this.run.configuration.definedInputs.map((input) => ({
             ...input
           }))
         },
-        environment: this.run.environment ? {
-          device: { ...this.run.environment.device },
-          browser: { ...this.run.environment.browser },
-          gpu: this.run.environment.gpu ? { ...this.run.environment.gpu } : void 0
-        } : void 0,
         metadata: this.run.metadata ? { ...this.run.metadata } : void 0
       },
+      environment: this.environment ? {
+        device: { ...this.environment.device },
+        browser: { ...this.environment.browser },
+        gpu: this.environment.gpu ? { ...this.environment.gpu } : void 0
+      } : void 0,
       frames: frameView,
       logs: filter?.includeLogs === false ? [] : this.logs.map((entry) => ({ ...entry })),
       errors: this.errors.map((entry) => ({ ...entry })),
@@ -6045,7 +6074,8 @@ var SimulationTracker = class {
         durationMs: Math.max(0, endedAt - this.run.startedAt),
         totalExecutionMs,
         averageExecutionMs: filteredFrames.length > 0 ? totalExecutionMs / filteredFrames.length : 0,
-        errorCount: this.errors.length
+        errorCount: this.errors.length,
+        methodSummaries
       }
     };
   }
@@ -6208,7 +6238,6 @@ var Simulation = class {
     this.tracker = new SimulationTracker({
       source: this.source,
       options,
-      appearance: this.appearance,
       compilationResult,
       tracking: config.tracking,
       metadata: config.metadata

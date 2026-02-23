@@ -4,7 +4,7 @@ import { EditorPanel } from "../components/Home/EditorPanel";
 import { LogsPanel } from "../components/Home/LogsPanel";
 import { CanvasArea } from "../components/Home/CanvasArea";
 import { NavDropdown } from "@/components/ui/nav-dropdown";
-import { Gamepad2Icon } from "lucide-react";
+import { Gamepad2Icon, ZapIcon } from "lucide-react";
 import { Method } from "@websimbench/agentyx";
 import "../components/Home/Controls/ControlPanels.css";
 
@@ -12,8 +12,10 @@ import { useCodeCompiler } from "../hooks/useCodeCompiler";
 import { useSimulationRunner } from "../hooks/useSimulationRunner";
 import { useLogger } from "../hooks/useLogger";
 import { useObstacles } from "../hooks/useObstacles";
+import { useBenchmark } from "../hooks/useBenchmark";
+import { useBenchmarkDB } from "../hooks/useBenchmarkDB";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Gear } from "@phosphor-icons/react";
 import {
   SimulationAppearanceOptions,
@@ -32,8 +34,6 @@ interface HomeProps {
 /**
  * Principal workbench view for simulating and testing agent logic.
  * Contains the canvas playground, real-time code editor, and options panel.
- *
- * @param props - Component properties for handling simulation state and options updates.
  */
 export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
   const OBSTACLE_SIZE = 50;
@@ -72,6 +72,59 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
 
   const { logs, clearLogs } = useLogger();
 
+  // --- Benchmark ---
+  const benchmark = useBenchmark();
+  const benchmarkDB = useBenchmarkDB();
+
+  const handleBenchmarkRun = useCallback(async () => {
+    if (!canvasRef.current) return;
+    const res = await benchmark.runBenchmark(
+      code,
+      benchmark.config,
+      canvasRef.current,
+    );
+    if (res) {
+      // Auto-save to IndexedDB
+      const { entry, combinedBlob } = benchmark.buildEntry(res);
+      await benchmarkDB.saveBenchmark(entry, combinedBlob);
+    }
+  }, [code, benchmark, canvasRef, benchmarkDB]);
+
+  const handleBenchmarkDownload = useCallback(
+    (index: number) => {
+      if (!benchmark.result) return;
+      const r = benchmark.result.reports[index];
+      if (!r) return;
+      const url = URL.createObjectURL(r.reportBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `benchmark-${r.method}-${r.agentCount}-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    [benchmark.result],
+  );
+
+  const handleBenchmarkSave = useCallback(async () => {
+    if (!benchmark.result) return;
+    const { entry, combinedBlob } = benchmark.buildEntry(benchmark.result);
+    await benchmarkDB.saveBenchmark(entry, combinedBlob);
+  }, [benchmark, benchmarkDB]);
+
+  const handleDownloadRecent = useCallback(
+    async (id: string) => {
+      const blob = await benchmarkDB.getReportBlob(id);
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `benchmark-${id}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    [benchmarkDB],
+  );
+
   const handlePlaceObstacle = (
     x: number,
     y: number,
@@ -91,6 +144,14 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
 
   const activeRenderMode = renderMode;
   const canRunSimulation = code.trim().length > 0;
+
+  // Build display value for dropdown
+  const dropdownValue =
+    method === "WebGPU"
+      ? activeRenderMode === "gpu"
+        ? "WebGPU (GPU)"
+        : "WebGPU (CPU)"
+      : method;
 
   return (
     <PanelGroup direction="horizontal">
@@ -126,13 +187,8 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
                 <NavDropdown
                   icon={<Gamepad2Icon size={16} />}
                   label="Playground"
-                  value={
-                    method === "WebGPU"
-                      ? activeRenderMode === "gpu"
-                        ? "WebGPU (GPU)"
-                        : "WebGPU (CPU)"
-                      : method
-                  }
+                  value={dropdownValue}
+                  disabled={benchmark.isBenchmarkMode}
                   onValueChange={(v) => {
                     if (v === "WebGPU (GPU)") {
                       setMethod("WebGPU");
@@ -156,11 +212,30 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
               </div>
             </div>
 
+            <button
+              onClick={() =>
+                benchmark.setIsBenchmarkMode(!benchmark.isBenchmarkMode)
+              }
+              title={
+                benchmark.isBenchmarkMode
+                  ? "Exit Benchmark Mode"
+                  : "Enter Benchmark Mode"
+              }
+              className={`benchmark-toggle ${benchmark.isBenchmarkMode ? "benchmark-toggle--on" : ""}`}
+            >
+              <ZapIcon size={14} />
+              <span>
+                {benchmark.isBenchmarkMode ? "Benchmarking" : "Benchmark"}
+              </span>
+              <span className="benchmark-toggle-pill">
+                <span className="benchmark-toggle-knob" />
+              </span>
+            </button>
+
             <HeaderIconButton
               onClick={() => setOptionsOpen(true)}
-              // className="ml-auto"
               title="System Configuration"
-              icon={<Gear size={28} weight="fill" />}
+              icon={<Gear size={40} weight="fill" />}
               label="Options"
             />
           </div>
@@ -188,9 +263,24 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
                   handleRun={handleRun}
                   canRun={canRunSimulation}
                   showPlaceholder={
-                    !hasStartedSimulation && obstacles.length === 0
+                    !benchmark.isBenchmarkMode &&
+                    !hasStartedSimulation &&
+                    obstacles.length === 0
                   }
                   placeholderText="Run the simulation to start."
+                  isBenchmarkMode={benchmark.isBenchmarkMode}
+                  benchmarkConfig={benchmark.config}
+                  benchmarkUpdateConfig={benchmark.updateConfig}
+                  benchmarkStatus={benchmark.status}
+                  benchmarkProgress={benchmark.progress}
+                  benchmarkResult={benchmark.result}
+                  onBenchmarkRun={handleBenchmarkRun}
+                  onBenchmarkStop={benchmark.stopBenchmark}
+                  onBenchmarkDownload={handleBenchmarkDownload}
+                  onBenchmarkSave={handleBenchmarkSave}
+                  benchmarkRecentEntries={benchmarkDB.entries}
+                  onBenchmarkDownloadRecent={handleDownloadRecent}
+                  onBenchmarkDeleteRecent={benchmarkDB.deleteBenchmark}
                 />
               </div>
             </Panel>

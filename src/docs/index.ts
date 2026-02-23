@@ -1,20 +1,22 @@
 import {
   DOCS_CURRENT_VERSION,
   DOCS_LATEST_VERSION,
+  DOCS_VERSION_OPTIONS,
   type DocsVersionOption,
 } from "@/config/version";
 import { docsV010 } from "./v0.1.0";
 import { docsV011 } from "./v0.1.1";
+import { docsV012 } from "./v0.1.2";
 import type { DocsPage, DocsVersion } from "./types";
 
 const versionMap: Record<string, DocsVersion> = {
+  [docsV012.id]: docsV012,
   [docsV011.id]: docsV011,
   [docsV010.id]: docsV010,
 };
 
-const aliasMap: Record<DocsVersionOption, DocsVersion["id"]> = {
+const aliasMap: Partial<Record<DocsVersionOption, DocsVersion["id"]>> = {
   [DOCS_LATEST_VERSION]: DOCS_CURRENT_VERSION,
-  [DOCS_CURRENT_VERSION]: DOCS_CURRENT_VERSION,
 };
 
 export const getDocsVersion = (
@@ -43,6 +45,11 @@ export const resolveDocsVersionLabel = (
     return requestedVersion as DocsVersionOption;
   }
 
+  // Check if it's a known version string (e.g. "v0.1.0")
+  if (requestedVersion in versionMap) {
+    return requestedVersion as DocsVersionOption;
+  }
+
   return DOCS_LATEST_VERSION;
 };
 
@@ -61,6 +68,5 @@ export const findDocsPage = (
 };
 
 export const getAvailableDocsVersions = (): DocsVersionOption[] => [
-  DOCS_LATEST_VERSION,
-  DOCS_CURRENT_VERSION,
+  ...DOCS_VERSION_OPTIONS,
 ];

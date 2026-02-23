@@ -232,6 +232,7 @@ export type SimulationSource =
  * @property captureAgentStates - Whether to clone agent positions each frame.
  * @property captureLogs - Whether to intercept and store logger output.
  * @property captureDeviceMetrics - Whether to collect runtime device/browser/GPU metrics.
+ * @property captureRawArrays - Whether to preserve full typed arrays (trailMap, randomValues) in input snapshots instead of replacing them with `{type, length}` descriptors.
  */
 export type TrackingOptions = {
   enabled: boolean;
@@ -239,6 +240,7 @@ export type TrackingOptions = {
   captureAgentStates: boolean;
   captureLogs: boolean;
   captureDeviceMetrics: boolean;
+  captureRawArrays: boolean;
 };
 
 /**

@@ -15,7 +15,7 @@ const PRESET_MULTI_SPECIES =
 const PRESET_TRAFFIC = PREMADE_SIMULATIONS["Traffic"].code.trim();
 const PRESET_COSMIC_WEB = PREMADE_SIMULATIONS["Cosmic Web"].code.trim();
 
-const DSL_LITERAL = (dsl: string) => JSON.stringify(dsl.trim());
+const DSL_LITERAL = (dsl: string) => `\`${dsl.trim()}\``;
 
 // ---------------------------------------------------------------------------
 // Reusable DSL / TS snippets
@@ -49,11 +49,13 @@ const QUICK_START_TYPESCRIPT = `import { Simulation } from '@websimbench/agentyx
 
 const canvas = document.getElementById('sim') as HTMLCanvasElement;
 
+const dslCode = ${DSL_LITERAL(QUICK_START_DSL)};
+
 const simulation = new Simulation({
   canvas,
   source: {
     kind: 'dsl',
-    code: ${DSL_LITERAL(QUICK_START_DSL)},
+    code: dslCode,
   },
   options: {
     agents: 5000,
@@ -91,7 +93,9 @@ const simulation = new Simulation({
   options: { agents: 20000 },
 });
 
+// Intisialising the GPU is required ***
 await simulation.initGPU();
+// ***
 
 async function frame() {
   await simulation.runFrame('WebGPU', {}, 'gpu');
@@ -492,14 +496,120 @@ const codeBlock = (
   kind: "code",
   snippet: { title, language: lang, code: codeStr },
 });
+const svg = (content: string): DocsContentBlock => ({ kind: "svg", content });
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// @ts-ignore
+const image = (
+  src: string,
+  alt: string,
+  caption?: string,
+): DocsContentBlock => ({
+  kind: "image",
+  src,
+  alt,
+  caption,
+});
+
+const PIPELINE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 280" width="100%" height="100%" font-family="system-ui, -apple-system, sans-serif">
+  
+  <defs>
+    <filter id="card-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+    
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2dd4bf" />
+    </marker>
+  </defs>
+
+  <g transform="translate(40, 40)">
+    <rect width="200" height="200" rx="12" fill="transparent" stroke="#2dd4bf" stroke-width="2" filter="url(#card-glow)"/>
+    
+    <g transform="translate(88, 30)" fill="none" stroke="#2dd4bf" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+      <polyline points="14 2 14 8 20 8"></polyline>
+      <line x1="16" y1="13" x2="8" y2="13"></line>
+      <line x1="16" y1="17" x2="8" y2="17"></line>
+      <line x1="10" y1="9" x2="8" y2="9"></line>
+    </g>
+
+    <text x="100" y="85" fill="#f8fafc" font-size="18" font-weight="bold" text-anchor="middle">Author</text>
+    
+    <text x="100" y="110" fill="#94a3b8" font-size="13" text-anchor="middle">Write DSL script</text>
+    
+    <rect x="30" y="145" width="140" height="30" rx="15" fill="#134e4a" stroke="#0f766e" stroke-width="1" />
+    <text x="100" y="165" fill="#5eead4" font-size="12" font-weight="600" text-anchor="middle">DSL Code</text>
+  </g>
+
+  <line x1="240" y1="140" x2="280" y2="140" stroke="#2dd4bf" stroke-width="2" stroke-dasharray="4" marker-end="url(#arrowhead)" opacity="0.6"/>
+
+  <g transform="translate(280, 40)">
+    <rect width="200" height="200" rx="12" fill="transparent" stroke="#2dd4bf" stroke-width="2" filter="url(#card-glow)"/>
+    
+    <g transform="translate(88, 28)" fill="none" stroke="#2dd4bf" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+       <circle cx="12" cy="12" r="3"></circle>
+       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+    </g>
+
+    <text x="100" y="85" fill="#f8fafc" font-size="18" font-weight="bold" text-anchor="middle">Compile</text>
+    <text x="100" y="110" fill="#94a3b8" font-size="13" text-anchor="middle">Generate shaders</text>
+    
+    <rect x="30" y="145" width="140" height="30" rx="15" fill="#134e4a" stroke="#0f766e" stroke-width="1" />
+    <text x="100" y="165" fill="#5eead4" font-size="12" font-weight="600" text-anchor="middle">WASM + WGSL</text>
+  </g>
+
+  <line x1="480" y1="140" x2="520" y2="140" stroke="#2dd4bf" stroke-width="2" stroke-dasharray="4" marker-end="url(#arrowhead)" opacity="0.6"/>
+
+  <g transform="translate(520, 40)">
+    <rect width="200" height="200" rx="12" fill="transparent" stroke="#2dd4bf" stroke-width="2" filter="url(#card-glow)"/>
+    
+    <g transform="translate(86, 28)" fill="none" stroke="#2dd4bf" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+      <rect x="9" y="9" width="6" height="6"></rect>
+      <line x1="9" y1="1" x2="9" y2="4"></line>
+      <line x1="15" y1="1" x2="15" y2="4"></line>
+      <line x1="9" y1="20" x2="9" y2="23"></line>
+      <line x1="15" y1="20" x2="15" y2="23"></line>
+      <line x1="20" y1="9" x2="23" y2="9"></line>
+      <line x1="20" y1="14" x2="23" y2="14"></line>
+      <line x1="1" y1="9" x2="4" y2="9"></line>
+      <line x1="1" y1="14" x2="4" y2="14"></line>
+    </g>
+
+    <text x="100" y="85" fill="#f8fafc" font-size="18" font-weight="bold" text-anchor="middle">Compute</text>
+    <text x="100" y="110" fill="#94a3b8" font-size="13" text-anchor="middle">Run update kernels</text>
+    
+    <rect x="30" y="145" width="140" height="30" rx="15" fill="#134e4a" stroke="#0f766e" stroke-width="1" />
+    <text x="100" y="165" fill="#5eead4" font-size="12" font-weight="600" text-anchor="middle">Agent States</text>
+  </g>
+
+  <line x1="720" y1="140" x2="760" y2="140" stroke="#2dd4bf" stroke-width="2" stroke-dasharray="4" marker-end="url(#arrowhead)" opacity="0.6"/>
+
+  <g transform="translate(760, 40)">
+    <rect width="200" height="200" rx="12" fill="transparent" stroke="#2dd4bf" stroke-width="2" filter="url(#card-glow)"/>
+    
+    <g transform="translate(88, 28)" fill="none" stroke="#2dd4bf" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+      <circle cx="8.5" cy="8.5" r="1.5"></circle>
+      <polyline points="21 15 16 10 5 21"></polyline>
+    </g>
+
+    <text x="100" y="85" fill="#f8fafc" font-size="18" font-weight="bold" text-anchor="middle">Render</text>
+    <text x="100" y="110" fill="#94a3b8" font-size="13" text-anchor="middle">Draw to Canvas</text>
+    
+    <rect x="30" y="145" width="140" height="30" rx="15" fill="#134e4a" stroke="#0f766e" stroke-width="1" />
+    <text x="100" y="165" fill="#5eead4" font-size="12" font-weight="600" text-anchor="middle">Visual Frame</text>
+  </g>
+
+</svg>`;
 
 // ---------------------------------------------------------------------------
 // Pages
 // ---------------------------------------------------------------------------
 
-export const docsV011: DocsVersion = {
-  id: "v0.1.1",
-  packageVersion: "0.1.1",
+export const docsV012: DocsVersion = {
+  id: "v0.1.2",
+  packageVersion: "0.1.2",
   releaseDate: "2026-02-23",
 
   sections: [
@@ -557,20 +667,20 @@ export const docsV011: DocsVersion = {
       id: "overview",
       title: "Overview",
       description:
-        "Agentyx is a browser-native simulation engine that compiles a simple DSL into JavaScript, WebAssembly, and WebGPU.  Letting you run massive agent populations without leaving the browser.",
+        "Agentyx is a browser-native simulation engine that compiles a simple DSL into JavaScript, WebAssembly, and WebGPU.  Letting you run and benchmark massive agent populations without leaving the browser.",
       sections: [
         {
           id: "what-is-agentyx",
           title: "What is Agentyx?",
           content: [
+            tip(
+              "Agentyx is distributed as an NPM package (`@websimbench/agentyx`) and works with any JavaScript framework or vanilla HTML/JS setup.",
+            ),
             p(
               "Traditional agent-based modeling tools often require native installations, specialized languages, or server infrastructure. Agentyx eliminates all of that. You write agent behavior in a concise DSL designed for 2D spatial agent logic, and the engine compiles it to three targets simultaneously: JavaScript, WebAssembly Text (WAT), and WGSL (WebGPU Shading Language).",
             ),
             p(
-              "This means you can run the exact same behavior script on any compute backend \u2014 switching between JavaScript, WebWorkers, WebAssembly, and WebGPU at runtime \u2014 without changing a single line of your simulation code. Everything runs client-side: compilation, execution, rendering, and performance tracking.",
-            ),
-            tip(
-              "Agentyx is distributed as an NPM package (`@websimbench/agentyx`) and works with any JavaScript framework or vanilla HTML/JS setup.",
+              "This means you can run the exact same behavior script on multiple compute backends, switching between JavaScript, WebWorkers, WebAssembly, and WebGPU at runtime without changing a single line of your simulation code. Everything runs client-side: compilation, execution, rendering, and performance tracking.",
             ),
             linkCards([
               {
@@ -602,29 +712,13 @@ export const docsV011: DocsVersion = {
             p(
               "Every simulation follows a four-stage pipeline from authoring to visual output:",
             ),
+            svg(PIPELINE_SVG),
             ordered([
-              "**Author** \u2014 Write agent behavior using the Agentyx DSL, a purpose-built language for spatial agent logic with built-in support for movement, neighbor queries, trails, species, and obstacles.",
+              "**Author** \u2014 Writes agent behavior using the Agentyx DSL, a purpose-built language for spatial agent logic with built-in support for movement, neighbor queries, trails, species, and obstacles.",
               "**Compile** \u2014 The compiler parses your DSL and generates optimized code for three targets: JavaScript (for main-thread and WebWorker execution), WAT (for WebAssembly), and WGSL (for WebGPU compute shaders).",
               "**Compute** \u2014 Choose a backend and the engine executes your compiled code against the entire agent population each frame. Switch backends at any time.",
               "**Render** \u2014 Agents are drawn to a `<canvas>` using CPU-based 2D rendering, GPU-accelerated instanced drawing, or no rendering at all for pure benchmark runs.",
             ]),
-            table(
-              ["Stage", "What happens", "Output"],
-              [
-                ["Author", "Write DSL behavior script", "DSL source code"],
-                [
-                  "Compile",
-                  "Parse and generate target code",
-                  "JS + WAT + WGSL",
-                ],
-                [
-                  "Compute",
-                  "Execute agent update kernels",
-                  "Updated agent states",
-                ],
-                ["Render", "Draw agents to canvas", "Visual frame"],
-              ],
-            ),
           ],
         },
         {
@@ -1003,6 +1097,10 @@ export const docsV011: DocsVersion = {
                   "`exportTrackingReport(filter?)`",
                   "Export tracking report as formatted JSON string.",
                 ],
+                [
+                  "`exportTrackingReportBlob(filter?)`",
+                  "Export tracking report as a memory-efficient Blob.",
+                ],
               ],
             ),
           ],
@@ -1172,6 +1270,11 @@ export const docsV011: DocsVersion = {
                   "`captureDeviceMetrics`",
                   "`boolean`",
                   "Collect browser, device, and GPU capability info.",
+                ],
+                [
+                  "`captureRawArrays`",
+                  "`boolean`",
+                  "Preserve full typed arrays (trailMap, randomValues) in input snapshots instead of stripping to `{type, length}` descriptors.",
                 ],
               ],
             ),
@@ -1481,18 +1584,21 @@ export const docsV011: DocsVersion = {
           title: "Tracking Reports",
           content: [
             p(
-              "For more comprehensive data, enable the tracking system in the constructor. It records a structured report covering source code, configuration, environment details, per-frame metrics, and optionally agent positions:",
+              "For more comprehensive data, enable the tracking system in the constructor. It records a structured report covering source code, configuration, environment details, per-frame metrics, and optionally agent and array states:",
             ),
             codeBlock("Tracking lifecycle", "ts", TRACKING_SNIPPET),
             warn(
-              "Enabling `captureAgentStates` records a full copy of the agent array every frame. For long runs with large populations, this can consume significant memory. Use it selectively for short-run analysis.",
-              "Memory",
+              "Enabling `captureAgentStates` records a full copy of the agent array every frame. For long runs with large populations, this consumes massive amounts of memory. Use selectively for debugging or short analysis.",
+              "Memory Warning",
+            ),
+            p(
+              "Similarly, setting `captureRawArrays: true` preserves full copies of internal system arrays like `trailMap` and `randomValues` for every frame, rather than just their size descriptors. This is useful for deep inspection but also grows report sizes rapidly.",
             ),
           ],
         },
         {
           id: "report-structure",
-          title: "Report Structure",
+          title: "Report Export & Structure",
           content: [
             p("A tracking report contains the following top-level sections:"),
             table(
@@ -1500,19 +1606,19 @@ export const docsV011: DocsVersion = {
               [
                 [
                   "`summary`",
-                  "Frame count, average execution time, method used, agent count",
+                  "Frame count, average execution time, per-method breakdowns via `methodSummaries`",
                 ],
                 [
-                  "`config`",
-                  "Source code, options, appearance, tracking settings",
+                  "`run`",
+                  "Source code, simulation options, required/defined inputs",
                 ],
                 [
                   "`environment`",
-                  "Browser, device, GPU capabilities (when `captureDeviceMetrics` is on)",
+                  "Browser, device, GPU capabilities (top-level, not per-method)",
                 ],
                 [
                   "`frames`",
-                  "Per-frame timing breakdowns and optional agent snapshots",
+                  "Per-frame timing breakdowns, input snapshots, and optional states/arrays",
                 ],
                 [
                   "`metadata`",
@@ -1526,7 +1632,25 @@ export const docsV011: DocsVersion = {
               ],
             ),
             p(
-              "Use `exportTrackingReport()` to get a pretty-printed JSON string suitable for file export or transmission to analysis tools.",
+              "Because reports can grow to hundreds of megabytes, Agentyx provides two export methods:",
+            ),
+            bullets([
+              "`exportTrackingReport()`: Returns the report as a JSON string. Good for small test runs.",
+              "`exportTrackingReportBlob()`: Returns the report as a `Blob` (type `application/json`), built incrementally to bypass V8 string length limits. **Required for large benchmarks**.",
+            ]),
+            p("To trigger a file download from a Blob in the browser:"),
+            codeBlock(
+              "Downloading a report Blob",
+              "ts",
+              `const blob = sim.exportTrackingReportBlob();
+const url = URL.createObjectURL(blob);
+const a = document.createElement("a");
+a.href = url;
+a.download = "benchmark-report.json";
+document.body.appendChild(a);
+a.click();
+document.body.removeChild(a);
+URL.revokeObjectURL(url);`,
             ),
           ],
         },

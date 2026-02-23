@@ -200,9 +200,11 @@ species(3);
 // 1 = Active Fire
 // 2 = Smoke/Ash
 
-input riseSpeed = 3.5;
-input turbulence = 0.8;
-input coolingRate = 0.05;
+// TIP: Try changing the species colours in the options panel to make this look like a real fire!
+
+input riseSpeed = 5.0;
+input turbulence = 10.0;
+input coolingRate = 0.04;
 input debrisChance = 0.02;
 
 // Species behavior
@@ -238,7 +240,7 @@ else {
     
     // Drifting
     var r = random();
-    var dx = (r - 0.5) * inputs.turbulence * 0.5;
+    var dx = (r - 0.7) * 0.5;
     moveRight(dx);
     
     // Chance to re-ignite if near fire? Or just recycle
@@ -255,7 +257,7 @@ borderWrapping();
 
   "Fluid Dispersal": `// Fluid Dispersal Simulation
 input gravity = 0.1;
-input repulsionRadius = 15;
+input repulsionRadius = 50;
 input repulsionForce = 0.5;
 input damping = 0.96;
 input r = random();
@@ -281,15 +283,14 @@ foreach(nearby) {
 vx *= inputs.damping;
 vy *= inputs.damping;
 
-// Boundary handling with bounce
+// Apply Friction to the bottom boundary
 if (y >= inputs.height) {
     y = inputs.height - 1;
     vy *= -0.8;
     vx *= 0.9; // Friction
 }
-if (x <= 0 || x >= inputs.width) {
-    vx *= -0.8;
-}
+
+borderBounce();
 
 updatePosition(1.0);
 `,
@@ -402,7 +403,7 @@ updatePosition(1.0);
 input gravity = 0.5;
 input wind = 0.1;
 input terminalVelocity = 10;
-input resetY = 0;
+input avoidanceStrength = 1.0;
 
 // Apply gravity
 vy += inputs.gravity;
@@ -417,6 +418,9 @@ limitSpeed(inputs.terminalVelocity);
 // Move
 updatePosition(1.0);
 
+// Avoid Obstacles
+avoidObstacles(inputs.avoidanceStrength);
+
 // Standard wrap for wind
 borderWrapping();
 `,
@@ -427,10 +431,10 @@ species(3);
 // 1: Balanced/Social
 // 2: Solitary/Slow
 
-input perception = 40;
-input separationVal = 0.5;
-input cohesionVal = 0.05;
-input alignVal = 0.05;
+input perception = 20;
+input separationVal = 0.05;
+input cohesionVal = 0.02;
+input alignVal = 0.01;
 input maxSpeed = 2;
 
 var nearby = neighbors(inputs.perception);
@@ -491,7 +495,10 @@ if (species == 0) {
     limitSpeed(inputs.maxSpeed); // Normal
 }
 
+avoidObstacles(1.0);
+
 borderWrapping();
+
 updatePosition(1.0);
 `,
 
@@ -537,7 +544,11 @@ vy *= 0.8;
 if (vx < 0.5) vx = 0.5;
 
 limitSpeed(inputs.maxSpeed);
+
 borderWrapping();
+
+avoidObstacles(1.0);
+
 updatePosition(1.0);
 `,
 
@@ -588,7 +599,11 @@ vx *= inputs.friction;
 vy *= inputs.friction;
 
 limitSpeed(inputs.maxSpeed);
+
 borderWrapping();
+
+avoidObstacles(1.0);
+
 updatePosition(1.0);
 `,
 };

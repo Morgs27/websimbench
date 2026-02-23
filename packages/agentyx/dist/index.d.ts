@@ -418,6 +418,7 @@ type SimulationSource =
  * @property captureAgentStates - Whether to clone agent positions each frame.
  * @property captureLogs - Whether to intercept and store logger output.
  * @property captureDeviceMetrics - Whether to collect runtime device/browser/GPU metrics.
+ * @property captureRawArrays - Whether to preserve full typed arrays (trailMap, randomValues) in input snapshots instead of replacing them with `{type, length}` descriptors.
  */
 type TrackingOptions = {
   enabled: boolean;
@@ -425,6 +426,7 @@ type TrackingOptions = {
   captureAgentStates: boolean;
   captureLogs: boolean;
   captureDeviceMetrics: boolean;
+  captureRawArrays: boolean;
 };
 /**
  * Constructor configuration for the {@link Simulation} class.
@@ -521,6 +523,26 @@ type SimulationFrameRecord = {
   performance?: FramePerformance;
 };
 /**
+ * Per-method aggregate timing breakdown.
+ *
+ * @property method - Compute method name.
+ * @property frameCount - Number of frames executed with this method.
+ * @property avgSetupTime - Mean setup/buffer time (ms).
+ * @property avgComputeTime - Mean compute kernel time (ms).
+ * @property avgRenderTime - Mean render time (ms).
+ * @property avgReadbackTime - Mean GPU/WASM readback time (ms).
+ * @property avgTotalTime - Mean total frame time (ms).
+ */
+type MethodSummary = {
+  method: string;
+  frameCount: number;
+  avgSetupTime: number;
+  avgComputeTime: number;
+  avgRenderTime: number;
+  avgReadbackTime: number;
+  avgTotalTime: number;
+};
+/**
  * Aggregate statistics for a simulation run.
  *
  * @property frameCount - Total number of frames in the report.
@@ -528,6 +550,7 @@ type SimulationFrameRecord = {
  * @property totalExecutionMs - Sum of all frame execution times.
  * @property averageExecutionMs - Mean execution time per frame.
  * @property errorCount - Number of errors recorded during the run.
+ * @property methodSummaries - Per-method timing breakdowns.
  */
 type SimulationRunSummary = {
   frameCount: number;
@@ -535,6 +558,7 @@ type SimulationRunSummary = {
   totalExecutionMs: number;
   averageExecutionMs: number;
   errorCount: number;
+  methodSummaries: MethodSummary[];
 };
 /**
  * Metadata describing the simulation run configuration and environment.
@@ -543,8 +567,7 @@ type SimulationRunSummary = {
  * @property startedAt - Unix timestamp when the simulation was constructed.
  * @property endedAt - Unix timestamp when {@link SimulationTracker.complete} was called.
  * @property source - The simulation source kind and code.
- * @property configuration - Snapshot of the simulation options, appearance, and inputs.
- * @property environment - Runtime device, browser, and GPU metrics.
+ * @property configuration - Snapshot of the simulation options and inputs.
  * @property metadata - Arbitrary caller-supplied metadata.
  */
 type SimulationRunMetadata = {
@@ -563,19 +586,21 @@ type SimulationRunMetadata = {
   };
   configuration: {
     options: SimulationOptions;
-    appearance: SimulationAppearance;
     requiredInputs: string[];
     definedInputs: CompilationResult["definedInputs"];
   };
-  environment?: RuntimeMetrics;
   metadata?: Record<string, unknown>;
 };
 /**
  * Complete tracking report for a simulation run, combining metadata,
- * frame records, logs, errors, and summary statistics.
+ * frame records, logs, errors, environment, and summary statistics.
+ *
+ * Environment is at the top level since it describes the session, not a
+ * per-method property.
  */
 type SimulationTrackingReport = {
   run: SimulationRunMetadata;
+  environment?: RuntimeMetrics;
   frames: SimulationFrameRecord[];
   logs: SimulationLogEntry[];
   errors: SimulationErrorEntry[];
@@ -612,6 +637,7 @@ declare class SimulationTracker {
   private readonly frames;
   private readonly logs;
   private readonly errors;
+  private environment?;
   private readonly logListener?;
   /**
    * Create a new tracker for a simulation run.
@@ -621,7 +647,6 @@ declare class SimulationTracker {
   constructor(params: {
     source: SimulationSource;
     options: SimulationOptions;
-    appearance: SimulationAppearance;
     compilationResult: CompilationResult;
     tracking?: Partial<TrackingOptions>;
     metadata?: Record<string, unknown>;
@@ -629,8 +654,7 @@ declare class SimulationTracker {
   /**
    * Asynchronously collect runtime device, browser, and GPU metrics.
    *
-   * The results are stored in `run.environment` for inclusion in
-   * tracking reports.
+   * The results are stored for inclusion in tracking reports.
    */
   collectEnvironmentMetrics(): Promise<void>;
   /**
@@ -1257,6 +1281,7 @@ export {
   Logger,
   MAX_AGENTS,
   type Method,
+  type MethodSummary,
   type Obstacle,
   PerformanceMonitor,
   type RenderMode,

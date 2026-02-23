@@ -47,6 +47,7 @@ export {
   type SimulationFrameRecord,
   type SimulationLogEntry,
   type SimulationErrorEntry,
+  type MethodSummary,
 } from "./tracking";
 export { default as Logger, LogLevel } from "./helpers/logger";
 export type {

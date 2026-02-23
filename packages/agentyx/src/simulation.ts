@@ -286,7 +286,6 @@ export class Simulation {
     this.tracker = new SimulationTracker({
       source: this.source,
       options,
-      appearance: this.appearance,
       compilationResult,
       tracking: config.tracking,
       metadata: config.metadata,

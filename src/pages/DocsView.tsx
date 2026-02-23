@@ -377,6 +377,33 @@ function ContentBlockRenderer({
         />
       );
 
+    case "svg":
+      return (
+        <div
+          key={key}
+          className="my-6 p-4 rounded-xl overflow-x-auto border border-white/[0.08] bg-[#0c1317] flex justify-center"
+          dangerouslySetInnerHTML={{ __html: block.content }}
+        />
+      );
+
+    case "image":
+      return (
+        <figure key={key} className="my-6">
+          <div className="rounded-xl overflow-hidden border border-white/[0.08] bg-black/20">
+            <img
+              src={block.src}
+              alt={block.alt}
+              className="w-full h-auto object-cover opacity-90 hover:opacity-100 transition-opacity"
+            />
+          </div>
+          {block.caption && (
+            <figcaption className="mt-2 text-center text-xs text-gray-500">
+              {block.caption}
+            </figcaption>
+          )}
+        </figure>
+      );
+
     default:
       return null;
   }

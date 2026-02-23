@@ -7,6 +7,14 @@ import {
 } from "@websimbench/agentyx";
 import { CanvasInputs } from "./Controls/CanvasInputs";
 import { CanvasActionBar } from "./Controls/CanvasActionBar";
+import { BenchmarkPanel } from "./Controls/BenchmarkPanel";
+import type {
+  BenchmarkConfig,
+  BenchmarkProgress,
+  BenchmarkResult,
+  BenchmarkStatus,
+} from "@/hooks/useBenchmark";
+import type { BenchmarkEntry } from "@/hooks/useBenchmarkDB";
 import "./CanvasArea.css";
 
 interface CanvasAreaProps {
@@ -35,6 +43,23 @@ interface CanvasAreaProps {
   showPlaceholder?: boolean;
   placeholderText?: string;
   canRun?: boolean;
+  // Benchmark props
+  isBenchmarkMode?: boolean;
+  benchmarkConfig?: BenchmarkConfig;
+  benchmarkUpdateConfig?: <K extends keyof BenchmarkConfig>(
+    key: K,
+    value: BenchmarkConfig[K],
+  ) => void;
+  benchmarkStatus?: BenchmarkStatus;
+  benchmarkProgress?: BenchmarkProgress | null;
+  benchmarkResult?: BenchmarkResult | null;
+  onBenchmarkRun?: () => void;
+  onBenchmarkStop?: () => void;
+  onBenchmarkDownload?: (index: number) => void;
+  onBenchmarkSave?: () => void;
+  benchmarkRecentEntries?: BenchmarkEntry[];
+  onBenchmarkDownloadRecent?: (id: string) => void;
+  onBenchmarkDeleteRecent?: (id: string) => void;
 }
 
 interface ContainedRect {
@@ -104,6 +129,19 @@ export const CanvasArea = ({
   showPlaceholder,
   placeholderText,
   canRun,
+  isBenchmarkMode,
+  benchmarkConfig,
+  benchmarkUpdateConfig,
+  benchmarkStatus,
+  benchmarkProgress,
+  benchmarkResult,
+  onBenchmarkRun,
+  onBenchmarkStop,
+  onBenchmarkDownload,
+  onBenchmarkSave,
+  benchmarkRecentEntries,
+  onBenchmarkDownloadRecent,
+  onBenchmarkDeleteRecent,
 }: CanvasAreaProps) => {
   console.log("CanvasArea Props Check:", {
     inputs,
@@ -210,14 +248,18 @@ export const CanvasArea = ({
         className={`canvas-layer ${renderMode === "gpu" ? "block" : "hidden"}`}
       />
 
-      {/* Inputs Overlay */}
-      {!hideObstaclesUI && inputs && definedInputs && handleInputChange && (
-        <CanvasInputs
-          inputs={inputs}
-          definedInputs={definedInputs}
-          handleInputChange={handleInputChange}
-        />
-      )}
+      {/* Inputs Overlay — hidden in benchmark mode */}
+      {!isBenchmarkMode &&
+        !hideObstaclesUI &&
+        inputs &&
+        definedInputs &&
+        handleInputChange && (
+          <CanvasInputs
+            inputs={inputs}
+            definedInputs={definedInputs}
+            handleInputChange={handleInputChange}
+          />
+        )}
 
       {/* Obstacles Overlay */}
       <div
@@ -261,8 +303,9 @@ export const CanvasArea = ({
         </div>
       )}
 
-      {/* Floating Toolbar */}
-      {setIsPlacing &&
+      {/* Floating Toolbar — hidden in benchmark mode */}
+      {!isBenchmarkMode &&
+        setIsPlacing &&
         onClearObstacles &&
         !hideObstaclesUI &&
         handleInputChange &&
@@ -284,6 +327,32 @@ export const CanvasArea = ({
             hideObstaclesUI={hideObstaclesUI}
             fps={fps}
             canRun={canRun}
+          />
+        )}
+
+      {/* Benchmark Panel Overlay */}
+      {isBenchmarkMode &&
+        benchmarkConfig &&
+        benchmarkUpdateConfig &&
+        benchmarkStatus &&
+        onBenchmarkRun &&
+        onBenchmarkStop &&
+        onBenchmarkDownload &&
+        onBenchmarkSave && (
+          <BenchmarkPanel
+            config={benchmarkConfig}
+            updateConfig={benchmarkUpdateConfig}
+            status={benchmarkStatus}
+            progress={benchmarkProgress ?? null}
+            result={benchmarkResult ?? null}
+            onRun={onBenchmarkRun}
+            onStop={onBenchmarkStop}
+            onDownload={onBenchmarkDownload}
+            onSave={onBenchmarkSave}
+            recentEntries={benchmarkRecentEntries ?? []}
+            onDownloadRecent={onBenchmarkDownloadRecent ?? (() => {})}
+            onDeleteRecent={onBenchmarkDeleteRecent ?? (() => {})}
+            canRun={canRun ?? true}
           />
         )}
     </div>

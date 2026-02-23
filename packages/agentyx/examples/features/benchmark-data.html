@@ -54,7 +54,7 @@
     <canvas id="c" width="800" height="600"></canvas>
     <pre id="output">Results will appear here...</pre>
     <script type="module">
-        import { Simulation } from 'https://esm.sh/@websimbench/agentyx@0.1.1?bundle';
+        import { Simulation } from 'https://esm.sh/@websimbench/agentyx@0.1.2?bundle';
 
         const btn = document.getElementById('run-bench');
         const downloadBtn = document.getElementById('download-report');
@@ -96,16 +96,25 @@
 
             const report = sim.getTrackingReport();
 
-            // Render nice output summary
-            output.textContent = [
+            // Render nice output summary with method breakdowns
+            const lines = [
                 `Completed 100 frames in ${totalTime.toFixed(2)}ms`,
                 `Average frame time: ${(totalTime / 100).toFixed(2)}ms`,
                 `Agents: ${sim.agents.length.toLocaleString()}`,
-                `Method: WebGPU`,
-                `\nSummary:`,
-                JSON.stringify(report.summary, null, 2),
-                `\nDetailed metrics and environment info are available in the full report.`
-            ].join('\n');
+                `\nMethod Summaries:`,
+            ];
+
+            for (const ms of report.summary.methodSummaries) {
+                lines.push(`  ${ms.method} (${ms.frameCount} frames):`);
+                lines.push(`    Avg Total:    ${ms.avgTotalTime.toFixed(2)}ms`);
+                lines.push(`    Avg Setup:    ${ms.avgSetupTime.toFixed(2)}ms`);
+                lines.push(`    Avg Compute:  ${ms.avgComputeTime.toFixed(2)}ms`);
+                lines.push(`    Avg Readback: ${ms.avgReadbackTime.toFixed(2)}ms`);
+                lines.push(`    Avg Render:   ${ms.avgRenderTime.toFixed(2)}ms`);
+            }
+
+            lines.push(`\nDetailed metrics and environment info are available in the full report.`);
+            output.textContent = lines.join('\n');
 
             lastSim = sim;
             status.textContent = 'Finished';
@@ -116,11 +125,7 @@
         downloadBtn.addEventListener('click', () => {
             if (!lastSim) return;
 
-            // We implement the Blob export locally because the CDN version 
-            // of the library doesn't have the new exportTrackingReportBlob method yet.
-            const report = lastSim.getTrackingReport();
-            const json = JSON.stringify(report, null, 2);
-            const blob = new Blob([json], { type: 'application/json' });
+            const blob = lastSim.exportTrackingReportBlob();
 
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
