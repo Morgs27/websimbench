@@ -33,7 +33,7 @@ export const CanvasInputs = ({
 
   return (
     <div
-      className="canvas-inputs-container"
+      className="canvas-inputs-container hide-mobile"
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >

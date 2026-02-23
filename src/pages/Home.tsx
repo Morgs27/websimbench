@@ -153,8 +153,10 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
         : "WebGPU (CPU)"
       : method;
 
+  const isMobile = window.innerWidth < 800;
+
   return (
-    <PanelGroup direction="horizontal">
+    <PanelGroup direction={isMobile ? "vertical" : "horizontal"}>
       <Panel defaultSize={50} minSize={20}>
         <PanelGroup direction="vertical">
           <Panel defaultSize={80} minSize={20}>
@@ -169,15 +171,21 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
             />
           </Panel>
 
-          <PanelResizeHandle className="panel-resize-row" />
+          {!isMobile && <PanelResizeHandle className="panel-resize-row" />}
 
-          <Panel defaultSize={20} minSize={10}>
-            <LogsPanel logs={logs} onClear={clearLogs} />
-          </Panel>
+          {!isMobile && (
+            <Panel defaultSize={20} minSize={10}>
+              <LogsPanel logs={logs} onClear={clearLogs} />
+            </Panel>
+          )}
         </PanelGroup>
       </Panel>
 
-      <PanelResizeHandle className="panel-resize-col" />
+      {isMobile ? (
+        <PanelResizeHandle className="panel-resize-row" />
+      ) : (
+        <PanelResizeHandle className="panel-resize-col" />
+      )}
 
       <Panel defaultSize={50} minSize={20}>
         <div className="page-container">
@@ -237,6 +245,7 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
               title="System Configuration"
               icon={<Gear size={40} weight="fill" />}
               label="Options"
+              className="hide-mobile"
             />
           </div>
 

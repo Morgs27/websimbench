@@ -724,10 +724,10 @@ export const DocsView = ({
             mobileNavOpen
               ? "fixed inset-0 z-40 bg-[#0a1a1f]/95 backdrop-blur-sm"
               : "hidden"
-          } lg:relative lg:block border-r border-white/[0.06] overflow-y-auto`}
+          } lg:relative lg:block border-r border-white/[0.06] overflow-y-auto sidebar-mobile`}
         >
           {/* Sidebar header */}
-          <div className="p-2 m-3 mb-1 rounded-xl bg-gradient-to-br  to-transparent ">
+          <div className="p-2 m-3 mb-1 rounded-xl bg-gradient-to-br  to-transparent  ">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-tropicalTeal/20 flex items-center justify-center">
                 <Dock size={18} className="text-tropicalTeal" />

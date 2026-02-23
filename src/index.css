@@ -122,3 +122,30 @@
     @apply font-sans;
   }
 }
+
+@media (max-width: 800px) {
+  .panel-header {
+    @apply hidden;
+  }
+
+  .hide-mobile {
+    @apply hidden md:block;
+  }
+
+  .sidebar-mobile {
+    margin-top: 100px;
+  }
+
+  .canvas-action-bar {
+    bottom: 10px;
+  }
+
+  .panel-resize-row {
+    height: 4px;
+  }
+}
+
+.onboarding-btn-outline,
+.onboarding-btn-primary {
+  justify-content: center;
+}

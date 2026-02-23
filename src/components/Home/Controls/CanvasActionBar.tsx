@@ -50,7 +50,7 @@ export const CanvasActionBar = ({
       {/* Agent Control */}
       {!isAgentCountDefined && (
         <div className="action-bar-group">
-          <div className="flex items-center text-tropicalTeal bg-tropicalTeal/20 p-1.5 rounded-full mr-1">
+          <div className="flex items-center text-tropicalTeal p-1.5 rounded-full mr-1 hide-mobile">
             <Users size={16} weight="fill" />
           </div>
           <div className="action-bar-input-wrapper">
@@ -71,10 +71,10 @@ export const CanvasActionBar = ({
 
       {!hideObstaclesUI && (
         <>
-          <div className="action-bar-divider" />
+          <div className="action-bar-divider hide-mobile" />
 
           {/* Obstacle Controls */}
-          <div className="action-bar-group">
+          <div className="action-bar-group hide-mobile">
             <Button
               variant="ghost"
               size="sm"
@@ -94,7 +94,7 @@ export const CanvasActionBar = ({
               onClick={onClearObstacles}
               title="Clear Obstacles"
               icon={<Trash size={16} weight="bold" />}
-              className="hover:text-red-400 hover:bg-red-400/10"
+              className="hover:text-red-400 hover:bg-red-400/10 hide-mobile"
             />
           </div>
         </>

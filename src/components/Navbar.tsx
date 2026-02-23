@@ -31,7 +31,7 @@ export const Navbar = ({ currentPage, onNavigatePage }: NavbarProps) => (
         />
       </div>
     </div>
-    <div className="navbar-version">
+    <div className="navbar-version hide-mobile">
       <span className="navbar-version-badge">{APP_VERSION_LABEL}</span>
     </div>
   </nav>

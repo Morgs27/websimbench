@@ -171,6 +171,7 @@ export const EditorPanel = ({
             title="Save Simulation"
             icon={<FloppyDisk size={18} />}
             label="Save"
+            className="hide-mobile"
           />
 
           <HeaderIconButton
@@ -178,6 +179,7 @@ export const EditorPanel = ({
             title="Load Simulation"
             icon={<UploadSimple size={18} />}
             label="Load"
+            className="hide-mobile"
           />
           <input
             type="file"
