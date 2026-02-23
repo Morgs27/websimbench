@@ -1,8 +1,8 @@
 import { PREMADE_SIMULATIONS } from "@/config/premadeSimulations";
-import { CURRENT_VERSION } from "@/config/version";
+
 import type { DocsContentBlock, DocsLinkCard, DocsVersion } from "./types";
 
-const CDN_IMPORT_URL = `https://esm.sh/@websimbench/agentyx@${CURRENT_VERSION}?bundle`;
+const CDN_IMPORT_URL = `https://esm.sh/@websimbench/agentyx@0.1.0?bundle`;
 
 const PRESET_SLIME_MOLD = PREMADE_SIMULATIONS["Slime Mold"].code.trim();
 const PRESET_BOIDS = PREMADE_SIMULATIONS["Boids"].code.trim();
@@ -498,8 +498,8 @@ const codeBlock = (
 // ---------------------------------------------------------------------------
 
 export const docsV010: DocsVersion = {
-  id: `v${CURRENT_VERSION}`,
-  packageVersion: CURRENT_VERSION,
+  id: "v0.1.0",
+  packageVersion: "0.1.0",
   releaseDate: "2026-02-22",
 
   sections: [

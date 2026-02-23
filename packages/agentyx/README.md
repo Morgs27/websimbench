@@ -10,23 +10,11 @@ Agentyx provides a custom DSL for agent behavior, then compiles it for JavaScrip
 npm i @websimbench/agentyx
 ```
 
-## Versioned Documentation
+## Documentation
 
 The documentation is hosted in WebSimBench.
 
-- Latest docs: [https://morgs27.github.io/dissertation/#/docs/latest/overview](https://morgs27.github.io/dissertation/#/docs/latest/overview)
-
-### Direct links
-
-- Installation: [latest/installation](https://morgs27.github.io/dissertation/#/docs/latest/installation)
-- Quick Start: [latest/quick-start](https://morgs27.github.io/dissertation/#/docs/latest/quick-start)
-- Simulation API: [latest/simulation-api](https://morgs27.github.io/dissertation/#/docs/latest/simulation-api)
-- Backends and Rendering: [latest/backends-rendering](https://morgs27.github.io/dissertation/#/docs/latest/backends-rendering)
-- Tracking and Benchmarking: [latest/tracking-benchmarking](https://morgs27.github.io/dissertation/#/docs/latest/tracking-benchmarking)
-- DSL Basics: [latest/dsl-basics](https://morgs27.github.io/dissertation/#/docs/latest/dsl-basics)
-- DSL Commands: [latest/dsl-commands](https://morgs27.github.io/dissertation/#/docs/latest/dsl-commands)
-- DSL Functions: [latest/dsl-functions](https://morgs27.github.io/dissertation/#/docs/latest/dsl-functions)
-- Runnable Examples: [latest/examples](https://morgs27.github.io/dissertation/#/docs/latest/examples)
+###### [https://websimbench.dev/#/docs/latest/overview](https://websimbench.dev/#/docs/latest/overview)
 
 ## Quick Start
 
@@ -37,9 +25,6 @@ const canvas = document.getElementById("my-canvas") as HTMLCanvasElement;
 
 const simulation = new Simulation({
   canvas,
-  // Optional dedicated GPU canvas for apps that switch between
-  // CPU and GPU render modes at runtime:
-  // gpuCanvas: document.getElementById('my-gpu-canvas') as HTMLCanvasElement,
   source: {
     kind: "dsl",
     code: `
@@ -52,17 +37,6 @@ const simulation = new Simulation({
     `,
   },
   options: { agents: 5000 },
-  appearance: {
-    agentColor: "#00FFFF",
-    backgroundColor: "#000000",
-    agentSize: 2,
-    agentShape: "circle",
-    showTrails: false,
-    trailColor: "#50FFFF",
-    obstacleColor: "#FF0000",
-    obstacleBorderColor: "#FF0000",
-    obstacleOpacity: 0.2,
-  },
 });
 
 await simulation.initGPU();
@@ -75,20 +49,21 @@ async function runLoop() {
 runLoop();
 ```
 
-## Core API
+## Examples
 
-Use the docs pages for complete detail:
+Check out the following examples in the `examples/` directory to see Agentyx in action. These can be run directly in your browser without a build step:
 
-- Constructor options, source modes, lifecycle methods:
-  [Simulation API](https://morgs27.github.io/dissertation/#/docs/latest/simulation-api)
-- Compute methods and render modes:
-  [Backends and Rendering](https://morgs27.github.io/dissertation/#/docs/latest/backends-rendering)
-- Performance + tracking reports:
-  [Tracking and Benchmarking](https://morgs27.github.io/dissertation/#/docs/latest/tracking-benchmarking)
-- DSL grammar, commands, and functions:
-  [DSL Basics](https://morgs27.github.io/dissertation/#/docs/latest/dsl-basics)
+**Basic Setup**
 
-## Notes
+- [JavaScript Backend](./examples/basic-setup/example-js.html)
+- [WebWorkers Backend](./examples/basic-setup/example-workers.html)
+- [WebAssembly Backend](./examples/basic-setup/example-wasm.html)
+- [WebGPU Backend](./examples/basic-setup/example-webgpu.html)
 
-- `gpuCanvas` is optional. If omitted, Agentyx reuses `canvas` for GPU output.
-- If your app frequently switches between CPU and GPU rendering in one session, use a dedicated `gpuCanvas` to avoid browser canvas context conflicts.
+**Features**
+
+- [Advanced Demo](./examples/features/advanced-demo.html)
+- [Benchmark Data](./examples/features/benchmark-data.html)
+- [Changing Style](./examples/features/changing-style.html)
+- [FPS Counter](./examples/features/fps-counter.html)
+- [Realtime Sliders](./examples/features/realtime-sliders.html)

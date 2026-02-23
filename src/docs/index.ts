@@ -4,9 +4,11 @@ import {
   type DocsVersionOption,
 } from "@/config/version";
 import { docsV010 } from "./v0.1.0";
+import { docsV011 } from "./v0.1.1";
 import type { DocsPage, DocsVersion } from "./types";
 
 const versionMap: Record<string, DocsVersion> = {
+  [docsV011.id]: docsV011,
   [docsV010.id]: docsV010,
 };
 
