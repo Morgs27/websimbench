@@ -58,7 +58,9 @@ var _Logger = class _Logger {
    */
   emit(level, message, ...args) {
     const fullMessage = args.length > 0 ? `${message} ${args.map((arg2) => typeof arg2 === "object" ? JSON.stringify(arg2) : String(arg2)).join(" ")}` : message;
-    _Logger.listeners.forEach((listener) => listener(level, this.context, fullMessage, args));
+    _Logger.listeners.forEach(
+      (listener) => listener(level, this.context, fullMessage, args)
+    );
   }
   /**
    * Log a verbose/debug message.
@@ -69,7 +71,11 @@ var _Logger = class _Logger {
   log(message, ...args) {
     if (GlobalLogLevel >= 4 /* Verbose */) {
       this.emit(4 /* Verbose */, message, ...args);
-      console.log(`%c[${this.context}] : ${message}`, `color: ${this.color}`, ...args);
+      console.log(
+        `%c[${this.context}] : ${message}`,
+        `color: ${this.color}`,
+        ...args
+      );
     }
   }
   /**
@@ -132,7 +138,11 @@ var _Logger = class _Logger {
 At line ${lineIndex + 1}:
 ${contextLines}`;
       this.emit(1 /* Error */, formattedMessage);
-      console.error(`[${this.context}] CODE ERROR: ${message}`, "\n", contextLines);
+      console.error(
+        `[${this.context}] CODE ERROR: ${message}`,
+        "\n",
+        contextLines
+      );
     }
   }
   /**
@@ -163,8 +173,12 @@ ${contextLines}`;
       } catch {
         formattedCode = code;
       }
-      console.log(`%c[${this.context}] ${label}:
-%c${formattedCode}`, `color: ${this.color}; font-weight: bold;`, "color: gray; font-family: monospace;");
+      console.log(
+        `%c[${this.context}] ${label}:
+%c${formattedCode}`,
+        `color: ${this.color}; font-weight: bold;`,
+        "color: gray; font-family: monospace;"
+      );
     }
   }
   /**
@@ -490,7 +504,8 @@ function validateExpressionAST(node, ctx) {
       if (builtinVariables.has(name)) return;
       if (name === "inputs" || name === "Math") return;
       if (ctx.currentLoopVar && name === ctx.currentLoopVar) return;
-      if (ctx.variables.has(name) || ctx.localVars.has(name) || ctx.randomInputs.has(name)) return;
+      if (ctx.variables.has(name) || ctx.localVars.has(name) || ctx.randomInputs.has(name))
+        return;
       ctx.errors.push({
         message: `Variable '${name}' is not defined.`,
         lineIndex: ctx.currentLineIndex
@@ -679,7 +694,11 @@ var DSLParser = class _DSLParser {
         const varName = compoundMatch[1];
         const op = compoundMatch[2];
         const rhs = compoundMatch[3];
-        return { type: "assignment", target: varName, expression: `${varName} ${op} ${rhs}` };
+        return {
+          type: "assignment",
+          target: varName,
+          expression: `${varName} ${op} ${rhs}`
+        };
       }
       const eqIndex = cleaned.indexOf("=");
       if (eqIndex > 0) {
@@ -692,7 +711,11 @@ var DSLParser = class _DSLParser {
     }
     const parsed = _DSLParser.parseCommandLine(trimmed);
     if (parsed) {
-      return { type: "command", command: parsed.command, argument: parsed.argument };
+      return {
+        type: "command",
+        command: parsed.command,
+        argument: parsed.argument
+      };
     }
     return { type: "unknown" };
   }
@@ -728,7 +751,9 @@ var DSLParser = class _DSLParser {
       if (parsed) {
         const template = commandMap[parsed.command];
         if (template) {
-          result.push(_DSLParser.applyCommandTemplate(template, parsed.argument));
+          result.push(
+            _DSLParser.applyCommandTemplate(template, parsed.argument)
+          );
         }
       }
     }
@@ -798,7 +823,8 @@ registerFunction({
       ctx.localVars.add("_dx");
       ctx.localVars.add("_dy");
       ctx.localVars.add("_dist");
-      return [`
+      return [
+        `
     ;; Find neighbors within radius (reading from agentsReadPtr for order-independent sensing)
     (local.set $${varName}_count (f32.const 0))
     (local.set $${varName}_sum_x (f32.const 0))
@@ -828,7 +854,8 @@ registerFunction({
         (local.set $_loop_ptr (i32.add (local.get $_loop_ptr) (i32.const 24)))
         (br $_neighbor_loop)
       )
-    )`];
+    )`
+      ];
     }
     return [];
   }
@@ -857,7 +884,9 @@ registerFunction({
     }
     if (target.name === "wat") {
       const collName = collection || "nearbyAgents";
-      return [`(local.set $${varName} (f32.div (local.get $${collName}_sum_${property}) (local.get $${collName}_count)))`];
+      return [
+        `(local.set $${varName} (f32.div (local.get $${collName}_sum_${property}) (local.get $${collName}_count)))`
+      ];
     }
     return [];
   }
@@ -877,7 +906,9 @@ registerFunction({
     }
     if (target.name === "wat") {
       ctx.localVars.add(varName);
-      return [`(local.set $${varName} (call $_sense (local.get $x) (local.get $y) (local.get $vx) (local.get $vy) ${angle} ${dist}))`];
+      return [
+        `(local.set $${varName} (call $_sense (local.get $x) (local.get $y) (local.get $vx) (local.get $vy) ${angle} ${dist}))`
+      ];
     }
     return [];
   },
@@ -886,8 +917,10 @@ registerFunction({
     const angle = target.emitExpression(args[0], ctx);
     const dist = target.emitExpression(args[1], ctx);
     if (target.name === "js") return `_sense(${angle}, ${dist})`;
-    if (target.name === "wgsl") return `_sense(x, y, vx, vy, ${angle}, ${dist})`;
-    if (target.name === "wat") return `(call $_sense (local.get $x) (local.get $y) (local.get $vx) (local.get $vy) ${angle} ${dist})`;
+    if (target.name === "wgsl")
+      return `_sense(x, y, vx, vy, ${angle}, ${dist})`;
+    if (target.name === "wat")
+      return `(call $_sense (local.get $x) (local.get $y) (local.get $vx) (local.get $vy) ${angle} ${dist})`;
     return "";
   }
 });
@@ -899,9 +932,15 @@ registerFunction({
     if (target.name === "js") {
       const callIndex = ctx.randomInputs.size + ctx.randomCallCount;
       ctx.randomCallCount++;
-      if (args.length === 0) return [`let ${varName} = _random(${callIndex}); `];
-      if (args.length === 1) return [`let ${varName} = _random(${callIndex}, ${target.emitExpression(args[0], ctx)}); `];
-      return [`let ${varName} = _random(${callIndex}, ${target.emitExpression(args[0], ctx)}, ${target.emitExpression(args[1], ctx)}); `];
+      if (args.length === 0)
+        return [`let ${varName} = _random(${callIndex}); `];
+      if (args.length === 1)
+        return [
+          `let ${varName} = _random(${callIndex}, ${target.emitExpression(args[0], ctx)}); `
+        ];
+      return [
+        `let ${varName} = _random(${callIndex}, ${target.emitExpression(args[0], ctx)}, ${target.emitExpression(args[1], ctx)}); `
+      ];
     }
     if (target.name === "wgsl") {
       const callIndex = ctx.randomInputs.size + ctx.randomCallCount;
@@ -914,7 +953,9 @@ registerFunction({
       }
       const min = target.emitExpression(args[0], ctx);
       const max = target.emitExpression(args[1], ctx);
-      return [`var ${varName}: f32 = (${min} + ${randVal} * (${max} - ${min}));`];
+      return [
+        `var ${varName}: f32 = (${min} + ${randVal} * (${max} - ${min}));`
+      ];
     }
     if (target.name === "wat") {
       ctx.localVars.add(varName);
@@ -928,7 +969,8 @@ registerFunction({
       const callIndex = ctx.randomInputs.size + ctx.randomCallCount;
       ctx.randomCallCount++;
       if (args.length === 0) return `_random(${callIndex})`;
-      if (args.length === 1) return `_random(${callIndex}, ${target.emitExpression(args[0], ctx)})`;
+      if (args.length === 1)
+        return `_random(${callIndex}, ${target.emitExpression(args[0], ctx)})`;
       return `_random(${callIndex}, ${target.emitExpression(args[0], ctx)}, ${target.emitExpression(args[1], ctx)})`;
     }
     if (target.name === "wgsl") {
@@ -1004,8 +1046,12 @@ registerCommand({
   name: "moveForward",
   emit(argument, target, ctx) {
     const a = arg(argument, target, ctx);
-    if (target.name === "js") return [`x = f(x + f(vx * ${a})); y = f(y + f(vy * ${a}));`];
-    if (target.name === "wgsl") return [`let _dist_mf = ${a}; let _dx_mf_t2 = vx * _dist_mf; let _dy_mf_t2 = vy * _dist_mf;  x = x + _dx_mf_t2; y = y + _dy_mf_t2;`];
+    if (target.name === "js")
+      return [`x = f(x + f(vx * ${a})); y = f(y + f(vy * ${a}));`];
+    if (target.name === "wgsl")
+      return [
+        `let _dist_mf = ${a}; let _dx_mf_t2 = vx * _dist_mf; let _dy_mf_t2 = vy * _dist_mf;  x = x + _dx_mf_t2; y = y + _dy_mf_t2;`
+      ];
     return [
       `(local.set $x (f32.add (local.get $x) (f32.mul (local.get $vx) ${a})))`,
       `(local.set $y (f32.add (local.get $y) (f32.mul (local.get $vy) ${a})))`
@@ -1016,8 +1062,12 @@ registerCommand({
   name: "updatePosition",
   emit(argument, target, ctx) {
     const a = arg(argument, target, ctx);
-    if (target.name === "js") return [`x = f(x + f(vx * ${a})); y = f(y + f(vy * ${a}));`];
-    if (target.name === "wgsl") return [`let _dt_up = ${a}; let _dx_mf_t1 = vx * _dt_up; let _dy_mf_t1 = vy * _dt_up; x = x + _dx_mf_t1; y = y + _dy_mf_t1;`];
+    if (target.name === "js")
+      return [`x = f(x + f(vx * ${a})); y = f(y + f(vy * ${a}));`];
+    if (target.name === "wgsl")
+      return [
+        `let _dt_up = ${a}; let _dx_mf_t1 = vx * _dt_up; let _dy_mf_t1 = vy * _dt_up; x = x + _dx_mf_t1; y = y + _dy_mf_t1;`
+      ];
     return [
       `(local.set $x (f32.add (local.get $x) (f32.mul (local.get $vx) ${a})))`,
       `(local.set $y (f32.add (local.get $y) (f32.mul (local.get $vy) ${a})))`
@@ -1065,10 +1115,14 @@ registerCommand({
   emit(argument, target, ctx) {
     const a = arg(argument, target, ctx);
     if (target.name === "js") {
-      return [`const __speed2 = f(f(vx*vx) + f(vy*vy)); if (__speed2 > f(${a}*${a})) { const __scale = f(Math.sqrt(f(f(${a}*${a}) / __speed2))); vx = f(vx * __scale); vy = f(vy * __scale); }`];
+      return [
+        `const __speed2 = f(f(vx*vx) + f(vy*vy)); if (__speed2 > f(${a}*${a})) { const __scale = f(Math.sqrt(f(f(${a}*${a}) / __speed2))); vx = f(vx * __scale); vy = f(vy * __scale); }`
+      ];
     }
     if (target.name === "wgsl") {
-      return [`let _spd_ls = ${a}; let _spd_ls2 = _spd_ls * _spd_ls; let _vx2_ls = vx * vx; let _vy2_ls = vy * vy; let _cur_ls2 = _vx2_ls + _vy2_ls; if (_cur_ls2 > _spd_ls2) { let _scale_ls = sqrt(_spd_ls2 / _cur_ls2); vx = vx * _scale_ls; vy = vy * _scale_ls; }`];
+      return [
+        `let _spd_ls = ${a}; let _spd_ls2 = _spd_ls * _spd_ls; let _vx2_ls = vx * vx; let _vy2_ls = vy * vy; let _cur_ls2 = _vx2_ls + _vy2_ls; if (_cur_ls2 > _spd_ls2) { let _scale_ls = sqrt(_spd_ls2 / _cur_ls2); vx = vx * _scale_ls; vy = vy * _scale_ls; }`
+      ];
     }
     ctx.localVars.add("__speed2");
     ctx.localVars.add("__scale");
@@ -1087,10 +1141,14 @@ registerCommand({
   emit(argument, target, ctx) {
     const a = arg(argument, target, ctx);
     if (target.name === "js") {
-      return [`const __c = f(Math.cos(${a})); const __s = f(Math.sin(${a})); const __vx = f(f(vx * __c) - f(vy * __s)); vy = f(f(vx * __s) + f(vy * __c)); vx = __vx;`];
+      return [
+        `const __c = f(Math.cos(${a})); const __s = f(Math.sin(${a})); const __vx = f(f(vx * __c) - f(vy * __s)); vy = f(f(vx * __s) + f(vy * __c)); vx = __vx;`
+      ];
     }
     if (target.name === "wgsl") {
-      return [`let _ang_t = ${a}; let _c_t = cos(_ang_t); let _s_t = sin(_ang_t); let _term1_t = vx * _c_t; let _term2_t = vy * _s_t; let _term3_t = vx * _s_t; let _term4_t = vy * _c_t; let _vx_new_t = _term1_t - _term2_t; let _vy_new_t = _term3_t + _term4_t; vx = _vx_new_t; vy = _vy_new_t;`];
+      return [
+        `let _ang_t = ${a}; let _c_t = cos(_ang_t); let _s_t = sin(_ang_t); let _term1_t = vx * _c_t; let _term2_t = vy * _s_t; let _term3_t = vx * _s_t; let _term4_t = vy * _c_t; let _vx_new_t = _term1_t - _term2_t; let _vy_new_t = _term3_t + _term4_t; vx = _vx_new_t; vy = _vy_new_t;`
+      ];
     }
     ctx.localVars.add("__c");
     ctx.localVars.add("__s");
@@ -1108,10 +1166,14 @@ registerCommand({
   name: "borderWrapping",
   emit(_argument, target, _ctx) {
     if (target.name === "js") {
-      return [`if (x < 0) x = f(x + f(inputs.width)); if (x >= f(inputs.width)) x = f(x - f(inputs.width)); if (y < 0) y = f(y + f(inputs.height)); if (y >= f(inputs.height)) y = f(y - f(inputs.height));`];
+      return [
+        `if (x < 0) x = f(x + f(inputs.width)); if (x >= f(inputs.width)) x = f(x - f(inputs.width)); if (y < 0) y = f(y + f(inputs.height)); if (y >= f(inputs.height)) y = f(y - f(inputs.height));`
+      ];
     }
     if (target.name === "wgsl") {
-      return [`if (x < 0.0) { x = x + inputs.width; } if (x >= inputs.width) { x = x - inputs.width; } if (y < 0.0) { y = y + inputs.height; } if (y >= inputs.height) { y = y - inputs.height; }`];
+      return [
+        `if (x < 0.0) { x = x + inputs.width; } if (x >= inputs.width) { x = x - inputs.width; } if (y < 0.0) { y = y + inputs.height; } if (y >= inputs.height) { y = y - inputs.height; }`
+      ];
     }
     return [
       `(if (f32.lt (local.get $x) (f32.const 0)) (then (local.set $x (f32.add (local.get $x) (global.get $inputs_width)))))`,
@@ -1125,10 +1187,14 @@ registerCommand({
   name: "borderBounce",
   emit(_argument, target, _ctx) {
     if (target.name === "js") {
-      return [`if (x < 0 || x > f(inputs.width)) vx = f(-vx); if (y < 0 || y > f(inputs.height)) vy = f(-vy); x = f(Math.max(0, Math.min(f(inputs.width), x))); y = f(Math.max(0, Math.min(f(inputs.height), y)));`];
+      return [
+        `if (x < 0 || x > f(inputs.width)) vx = f(-vx); if (y < 0 || y > f(inputs.height)) vy = f(-vy); x = f(Math.max(0, Math.min(f(inputs.width), x))); y = f(Math.max(0, Math.min(f(inputs.height), y)));`
+      ];
     }
     if (target.name === "wgsl") {
-      return [`if (x < 0.0 || x >= inputs.width) { vx = -vx; } if (y < 0.0 || y >= inputs.height) { vy = -vy; } x = clamp(x, 0.0, inputs.width); y = clamp(y, 0.0, inputs.height);`];
+      return [
+        `if (x < 0.0 || x >= inputs.width) { vx = -vx; } if (y < 0.0 || y >= inputs.height) { vy = -vy; } x = clamp(x, 0.0, inputs.width); y = clamp(y, 0.0, inputs.height);`
+      ];
     }
     return [
       `(if (i32.or (f32.lt (local.get $x) (f32.const 0)) (f32.gt (local.get $x) (global.get $inputs_width))) (then (local.set $vx (f32.neg (local.get $vx)))))`,
@@ -1154,7 +1220,8 @@ registerCommand({
     const angle = target.emitExpression(args[0], ctx);
     const dist = target.emitExpression(args[1], ctx);
     if (target.name === "js") return [`_sense(${angle}, ${dist})`];
-    if (target.name === "wgsl") return [`_sense(x, y, vx, vy, ${angle}, ${dist})`];
+    if (target.name === "wgsl")
+      return [`_sense(x, y, vx, vy, ${angle}, ${dist})`];
     return [`(call $sense ${angle} ${dist})`];
   }
 });
@@ -1177,7 +1244,8 @@ registerCommand({
   emit(argument, target, ctx) {
     const a = argument.trim() ? arg(argument, target, ctx) : arg("1.0", target, ctx);
     if (target.name === "js") return [`_avoidObstacles(${a});`];
-    if (target.name === "wgsl") return [`_avoidObstacles(${a}, &x, &y, &vx, &vy);`];
+    if (target.name === "wgsl")
+      return [`_avoidObstacles(${a}, &x, &y, &vx, &vy);`];
     if (target.name === "wat") {
       ctx.localVars.add("_obs_idx");
       ctx.localVars.add("_obs_ptr");
@@ -1239,7 +1307,8 @@ registerCommand({
   name: "print",
   emit(argument, target, ctx) {
     const a = arg(argument, target, ctx);
-    if (target.name === "js") return [`if (inputs.print) inputs.print(id, ${a});`];
+    if (target.name === "js")
+      return [`if (inputs.print) inputs.print(id, ${a});`];
     if (target.name === "wgsl") return [`agentLogs[i] = vec2<f32>(1.0, ${a});`];
     return [`(call $print (local.get $_agent_id) ${a})`];
   }
@@ -1270,7 +1339,12 @@ function transpileDSL(lines, target, ctx) {
         break;
       case "var": {
         validateExpressionString(parsed.expression, ctx);
-        const functionResult = tryEmitFunctionVar(parsed.name, parsed.expression, target, ctx);
+        const functionResult = tryEmitFunctionVar(
+          parsed.name,
+          parsed.expression,
+          target,
+          ctx
+        );
         if (functionResult) {
           emitted = functionResult;
         } else {
@@ -1301,11 +1375,21 @@ function transpileDSL(lines, target, ctx) {
           ctx.variables.set(loopVar, { type: "loop_index" });
         }
         validateExpressionString(parsed.condition, ctx);
-        emitted = target.emitFor(parsed.init, parsed.condition, parsed.increment, ctx);
+        emitted = target.emitFor(
+          parsed.init,
+          parsed.condition,
+          parsed.increment,
+          ctx
+        );
         break;
       }
       case "foreach":
-        emitted = target.emitForeach(parsed.collection, parsed.varName, parsed.itemAlias, ctx);
+        emitted = target.emitForeach(
+          parsed.collection,
+          parsed.varName,
+          parsed.itemAlias,
+          ctx
+        );
         break;
       case "assignment":
         if (!parsed.target.includes("[") && !parsed.target.includes(".")) {
@@ -1322,7 +1406,10 @@ function transpileDSL(lines, target, ctx) {
         break;
       case "unknown":
       default:
-        ctx.errors.push({ message: "Unknown syntax or command", lineIndex: line.lineIndex });
+        ctx.errors.push({
+          message: "Unknown syntax or command",
+          lineIndex: line.lineIndex
+        });
         continue;
     }
     if (startsWithBrace && emitted.length > 0) {
@@ -1355,17 +1442,24 @@ var JSTarget = {
     return transformExpression(indexRandomCalls(expr, ctx), ctx.randomInputs);
   },
   emitVar(name, expression, ctx) {
-    const exprTranspiled = transformExpression(indexRandomCalls(expression, ctx), ctx.randomInputs);
+    const exprTranspiled = transformExpression(
+      indexRandomCalls(expression, ctx),
+      ctx.randomInputs
+    );
     ctx.variables.set(name, { type: "scalar" });
     return [`let ${name} = ${exprTranspiled}; `];
   },
   emitIf(condition, ctx) {
     ctx.blockStack.push("control");
-    return [`if (${transformExpression(indexRandomCalls(condition, ctx), ctx.randomInputs)}) {`];
+    return [
+      `if (${transformExpression(indexRandomCalls(condition, ctx), ctx.randomInputs)}) {`
+    ];
   },
   emitElseIf(condition, ctx) {
     ctx.blockStack.push("control");
-    return [`else if (${transformExpression(indexRandomCalls(condition, ctx), ctx.randomInputs)}) {`];
+    return [
+      `else if (${transformExpression(indexRandomCalls(condition, ctx), ctx.randomInputs)}) {`
+    ];
   },
   emitElse(ctx) {
     ctx.blockStack.push("control");
@@ -1373,7 +1467,10 @@ var JSTarget = {
   },
   emitFor(init, condition, increment, ctx) {
     const jsInit = init.replace(/^var\s+/, "let ");
-    const jsCond = transformExpression(indexRandomCalls(condition, ctx), ctx.randomInputs);
+    const jsCond = transformExpression(
+      indexRandomCalls(condition, ctx),
+      ctx.randomInputs
+    );
     ctx.loopDepth++;
     ctx.blockStack.push("loop");
     return [`for (${jsInit}; ${jsCond}; ${increment}) {`];
@@ -1393,7 +1490,10 @@ var JSTarget = {
     return [`for (const ${loopVar} of ${collection}) {`];
   },
   emitAssignment(target, expression, ctx) {
-    const exprTranspiled = transformExpression(indexRandomCalls(expression, ctx), ctx.randomInputs);
+    const exprTranspiled = transformExpression(
+      indexRandomCalls(expression, ctx),
+      ctx.randomInputs
+    );
     return [`${target.trim()} = ${exprTranspiled}; `];
   },
   emitCloseBrace(ctx) {
@@ -1502,7 +1602,9 @@ var JSTarget = {
                         writeMap[iy * w + ix] = f(writeMap[iy * w + ix] + amt);
                     };`);
     }
-    const usesAvoidObstacles = statements.some((s) => s.includes("_avoidObstacles("));
+    const usesAvoidObstacles = statements.some(
+      (s) => s.includes("_avoidObstacles(")
+    );
     if (usesAvoidObstacles) {
       helpers.push(`
                     const _avoidObstacles = (strength) => {
@@ -1603,7 +1705,8 @@ function infixToSExpression(expr) {
   expr = expr.trim();
   if (expr.includes(".")) {
     expr = expr.replace(/([a-zA-Z_]\w*)\.(\w+)/g, (match, prefix, suffix) => {
-      if (prefix === "f32" || prefix === "i32" || prefix === "local" || prefix === "global" || prefix === "call" || prefix === "return") return match;
+      if (prefix === "f32" || prefix === "i32" || prefix === "local" || prefix === "global" || prefix === "call" || prefix === "return")
+        return match;
       return `${prefix}_${suffix}`;
     });
   }
@@ -1689,8 +1792,10 @@ function infixToSExpression(expr) {
   }
   const converted = tokens.map((token) => {
     const _rm = token.match(/^__RANDOM_(\d+)__$/);
-    if (_rm) return `(call $random (local.get $_agent_id) (i32.const ${_rm[1]}))`;
-    if (/^GLOBAL_\w+$/.test(token)) return `(global.get $inputs_${token.substring(7)})`;
+    if (_rm)
+      return `(call $random (local.get $_agent_id) (i32.const ${_rm[1]}))`;
+    if (/^GLOBAL_\w+$/.test(token))
+      return `(global.get $inputs_${token.substring(7)})`;
     if (/^-?\d+(\.\d+)?$/.test(token)) return `(f32.const ${token})`;
     if (/^[+\-*/]$/.test(token)) return token;
     if (token === "id") return `(local.get $_agent_id)`;
@@ -1705,12 +1810,16 @@ function normalizeWASMExpression(expr, randomInputs, watCtx) {
   });
   r = r.replace(/(\w+(?:\.\w+)?)\s*\^2/g, "$1 * $1");
   r = r.replace(/(\w+(?:\.\w+)?)\s*\*\*2/g, "$1 * $1");
-  r = r.replace(/([a-zA-Z_]\w*)\.(?!length|count)(\w+)/g, (match, obj, prop) => {
-    if (obj === "inputs") return match;
-    if (obj === "nearbyAgents") return match;
-    if (obj === "f32" || obj === "i32" || obj === "local" || obj === "global" || obj === "call" || obj === "return") return match;
-    return `${obj}_${prop}`;
-  });
+  r = r.replace(
+    /([a-zA-Z_]\w*)\.(?!length|count)(\w+)/g,
+    (match, obj, prop) => {
+      if (obj === "inputs") return match;
+      if (obj === "nearbyAgents") return match;
+      if (obj === "f32" || obj === "i32" || obj === "local" || obj === "global" || obj === "call" || obj === "return")
+        return match;
+      return `${obj}_${prop}`;
+    }
+  );
   r = r.replace(/(\w+)\.length/g, "$1_count");
   r = r.replace(/(\w+)\.count/g, "$1_count");
   if (r.includes("neighbors(")) {
@@ -1745,7 +1854,11 @@ function normalizeWASMExpression(expr, randomInputs, watCtx) {
   if (r.includes("inputs.random")) {
     const randIdx = watCtx ? watCtx.numRandomInputs + watCtx.randomCallCount : 0;
     if (watCtx) watCtx.randomCallCount++;
-    return normalizeWASMExpression(r.replace(/inputs\.random/g, `__RANDOM_${randIdx}__`), randomInputs, watCtx);
+    return normalizeWASMExpression(
+      r.replace(/inputs\.random/g, `__RANDOM_${randIdx}__`),
+      randomInputs,
+      watCtx
+    );
   }
   if (randomInputs.size > 0) {
     r = r.replace(/inputs\.(\w+)/g, (match, name) => {
@@ -1797,18 +1910,31 @@ function transpileLine(line, localVars, randomInputs, context) {
       let expr = parsed.expression;
       const arrayMatchInVar = expr.match(/(\w+)\[\w+\]\.(\w+)/);
       if (arrayMatchInVar) {
-        const offsets = { x: 4, y: 8, vx: 12, vy: 16, species: 20 };
+        const offsets = {
+          x: 4,
+          y: 8,
+          vx: 12,
+          vy: 16,
+          species: 20
+        };
         const offset = offsets[arrayMatchInVar[2]] || 0;
         return `(local.set $${parsed.name} (f32.load (i32.add (local.get $_for_ptr) (i32.const ${offset}))))`;
       }
       if (context.currentLoopVar) {
-        const loopVarRegex = new RegExp(`\\b${context.currentLoopVar}\\.(\\w+)`, "g");
+        const loopVarRegex = new RegExp(
+          `\\b${context.currentLoopVar}\\.(\\w+)`,
+          "g"
+        );
         expr = expr.replace(loopVarRegex, `${context.currentLoopVar}_$1`);
       }
       const wasmExpr = normalizeWASMExpression(expr, randomInputs, context);
       if (wasmExpr.startsWith("__NEIGHBORS__")) {
         const radiusExpr = wasmExpr.replace("__NEIGHBORS__", "").replace("__", "");
-        const radius = normalizeWASMExpression(radiusExpr, randomInputs, context);
+        const radius = normalizeWASMExpression(
+          radiusExpr,
+          randomInputs,
+          context
+        );
         context.neighborsInfo.set(parsed.name, { radiusExpr: radius });
         localVars.add(`${parsed.name}_count`);
         localVars.add(`${parsed.name}_sum_x`);
@@ -1862,28 +1988,54 @@ function transpileLine(line, localVars, randomInputs, context) {
       return `(local.set $${parsed.name} ${wasmExpr})`;
     }
     case "if": {
-      context.blockStack.push({ type: "if", pendingClose: context.deferredPendingClose });
+      context.blockStack.push({
+        type: "if",
+        pendingClose: context.deferredPendingClose
+      });
       context.deferredPendingClose = 0;
       let condition = parsed.condition;
       if (context.currentLoopVar) {
-        const loopVarRegex = new RegExp(`\\b${context.currentLoopVar}\\.(\\w+)`, "g");
-        condition = condition.replace(loopVarRegex, `${context.currentLoopVar}_$1`);
+        const loopVarRegex = new RegExp(
+          `\\b${context.currentLoopVar}\\.(\\w+)`,
+          "g"
+        );
+        condition = condition.replace(
+          loopVarRegex,
+          `${context.currentLoopVar}_$1`
+        );
       }
       const combinedCondition = (parts, op) => {
-        const conditions = parts.map((p) => parseCondition(p, randomInputs, context));
-        if (conditions.some((c) => c.includes("TODO"))) return conditions.find((c) => c.includes("TODO")) ?? null;
+        const conditions = parts.map(
+          (p) => parseCondition(p, randomInputs, context)
+        );
+        if (conditions.some((c) => c.includes("TODO")))
+          return conditions.find((c) => c.includes("TODO")) ?? null;
         return `(if ${conditions.reduce((acc, c) => acc ? `(i32.${op} ${acc} ${c})` : c)} (then`;
       };
-      if (condition.includes("&&")) return combinedCondition(condition.split("&&").map((p) => p.trim()), "and") ?? null;
-      if (condition.includes("||")) return combinedCondition(condition.split("||").map((p) => p.trim()), "or") ?? null;
+      if (condition.includes("&&"))
+        return combinedCondition(
+          condition.split("&&").map((p) => p.trim()),
+          "and"
+        ) ?? null;
+      if (condition.includes("||"))
+        return combinedCondition(
+          condition.split("||").map((p) => p.trim()),
+          "or"
+        ) ?? null;
       return `(if ${parseCondition(condition, randomInputs, context)} (then`;
     }
     case "else":
-      context.blockStack.push({ type: "if", pendingClose: context.deferredPendingClose });
+      context.blockStack.push({
+        type: "if",
+        pendingClose: context.deferredPendingClose
+      });
       context.deferredPendingClose = 0;
       return "(else";
     case "elseif":
-      context.blockStack.push({ type: "if", pendingClose: context.deferredPendingClose });
+      context.blockStack.push({
+        type: "if",
+        pendingClose: context.deferredPendingClose
+      });
       context.deferredPendingClose = 0;
       return `(elseif ${parseCondition(parsed.condition, randomInputs, context)}`;
     case "for": {
@@ -1973,24 +2125,45 @@ function transpileLine(line, localVars, randomInputs, context) {
       let assignExpr = parsed.expression;
       const arrayMatch = assignExpr.match(/(\w+)\[\w+\]\.(\w+)/);
       if (arrayMatch) {
-        const offsets = { x: 4, y: 8, vx: 12, vy: 16, species: 20 };
+        const offsets = {
+          x: 4,
+          y: 8,
+          vx: 12,
+          vy: 16,
+          species: 20
+        };
         const offset = offsets[arrayMatch[2]] || 0;
         const loadExpr = `(f32.load (i32.add (local.get $_for_ptr) (i32.const ${offset})))`;
         assignExpr = assignExpr.replace(/(\w+)\[\w+\]\.(\w+)/, loadExpr);
         return `(local.set $${parsed.target} ${normalizeWASMExpression(assignExpr, randomInputs, context)})`;
       }
       if (context.currentLoopVar) {
-        const loopVarRegex = new RegExp(`\\b${context.currentLoopVar}\\.(\\w+)`, "g");
-        assignExpr = assignExpr.replace(loopVarRegex, `${context.currentLoopVar}_$1`);
+        const loopVarRegex = new RegExp(
+          `\\b${context.currentLoopVar}\\.(\\w+)`,
+          "g"
+        );
+        assignExpr = assignExpr.replace(
+          loopVarRegex,
+          `${context.currentLoopVar}_$1`
+        );
       }
       return `(local.set $${parsed.target} ${normalizeWASMExpression(assignExpr, randomInputs, context)})`;
     }
     case "command": {
-      const ctx = createContext(Array.from(context.inputs), Array.from(randomInputs), context.numRandomCalls);
+      const ctx = createContext(
+        Array.from(context.inputs),
+        Array.from(randomInputs),
+        context.numRandomCalls
+      );
       ctx.localVars = localVars;
       if (context.currentLoopVar) ctx.currentLoopVar = context.currentLoopVar;
       ctx.loopDepth = context.loopDepth;
-      const result = emitCommand(parsed.command, parsed.argument, WATTarget, ctx);
+      const result = emitCommand(
+        parsed.command,
+        parsed.argument,
+        WATTarget,
+        ctx
+      );
       if (result && result.length > 0) {
         return result.join("\n    ");
       }
@@ -2008,7 +2181,9 @@ var WATTarget = {
   },
   emitVar(name, expression, ctx) {
     ctx.localVars.add(name);
-    return [`(local.set $${name} ${normalizeWASMExpression(expression, ctx.randomInputs)})`];
+    return [
+      `(local.set $${name} ${normalizeWASMExpression(expression, ctx.randomInputs)})`
+    ];
   },
   emitIf(condition, ctx) {
     return [`(if ${parseCondition(condition, ctx.randomInputs)} (then`];
@@ -2026,7 +2201,9 @@ var WATTarget = {
     return [";; foreach loop (not used through shared transpiler)"];
   },
   emitAssignment(target, expression, ctx) {
-    return [`(local.set $${target} ${normalizeWASMExpression(expression, ctx.randomInputs)})`];
+    return [
+      `(local.set $${target} ${normalizeWASMExpression(expression, ctx.randomInputs)})`
+    ];
   },
   emitCloseBrace(_ctx) {
     return ["))"];
@@ -2069,10 +2246,18 @@ var compileDSLtoWAT = (lines, inputs, randomInputs = [], numRandomCalls = 0) => 
       if (closedBlock) context.deferredPendingClose += closedBlock.pendingClose;
       statements.push(")");
     }
-    let transpiled = transpileLine(trimmed, localVars, randomInputsSet, context);
+    let transpiled = transpileLine(
+      trimmed,
+      localVars,
+      randomInputsSet,
+      context
+    );
     if (transpiled === null && trimmed !== "}") {
       if (context.blockStack.length > 0) {
-        errors.push({ message: "Missing closing brace", lineIndex: lines[lines.length - 1].lineIndex });
+        errors.push({
+          message: "Missing closing brace",
+          lineIndex: lines[lines.length - 1].lineIndex
+        });
       }
     }
     if (trimmed === "}") {
@@ -2136,9 +2321,22 @@ var compileDSLtoWAT = (lines, inputs, randomInputs = [], numRandomCalls = 0) => 
   }
   localVars.add("_agent_id");
   randomInputs.forEach((r) => localVars.add(r));
-  const inputGlobals = inputs.length > 0 ? inputs.filter((n) => n !== "randomValues" && n !== "trailMap" && n !== "obstacles" && n !== "obstacleCount").map((n) => `(global $inputs_${n} (export "inputs_${n}") (mut f32) (f32.const 0))`).join("\n  ") : "";
+  const inputGlobals = inputs.length > 0 ? inputs.filter(
+    (n) => n !== "randomValues" && n !== "trailMap" && n !== "obstacles" && n !== "obstacleCount"
+  ).map(
+    (n) => `(global $inputs_${n} (export "inputs_${n}") (mut f32) (f32.const 0))`
+  ).join("\n  ") : "";
   const agentCountGlobal = `(global $agent_count (export "agent_count") (mut i32) (i32.const 0))`;
-  const i32Vars = /* @__PURE__ */ new Set(["_loop_idx", "_loop_ptr", "_for_idx", "_for_ptr", "_foreach_idx", "_foreach_ptr", "_obs_idx", "_obs_ptr"]);
+  const i32Vars = /* @__PURE__ */ new Set([
+    "_loop_idx",
+    "_loop_ptr",
+    "_for_idx",
+    "_for_ptr",
+    "_foreach_idx",
+    "_foreach_ptr",
+    "_obs_idx",
+    "_obs_ptr"
+  ]);
   const reservedLocals = /* @__PURE__ */ new Set(["x", "y", "vx", "vy", "species"]);
   const localVarDecls = Array.from(localVars).filter((v) => !reservedLocals.has(v)).map((v) => `(local $${v} ${i32Vars.has(v) ? "i32" : "f32"})`).join("\n      ");
   const agentKernel = `
@@ -2385,7 +2583,10 @@ function transpileExpression(expr, ctx) {
     const dist = transpileExpression(parts[1], ctx);
     return `_sense(agent.x, agent.y, agent.vx, agent.vy, ${angle}, ${dist})`;
   });
-  result = result.replace(/inputs\.randomValues\[([^\]]+)\]/g, "randomValues[u32($1)]");
+  result = result.replace(
+    /inputs\.randomValues\[([^\]]+)\]/g,
+    "randomValues[u32($1)]"
+  );
   result = result.replace(/inputs\.random\b/g, "randomValues[u32(agent.id)]");
   result = result.replace(/inputs\.randomValues/g, "randomValues");
   result = result.replace(/random\(([^)]*)\)/g, (_match, args) => {
@@ -2427,10 +2628,7 @@ var WGSLTarget = {
     if (arrayAccessMatch) {
       let expr = expression;
       if (ctx.loopDepth > 0) {
-        expr = expr.replace(
-          /(\w+)\[(\w+)\]\.(\w+)/g,
-          "_loop_other.$3"
-        );
+        expr = expr.replace(/(\w+)\[(\w+)\]\.(\w+)/g, "_loop_other.$3");
       }
       const transpiled2 = transpileExpression(expr, ctx);
       ctx.variables.set(name, { type: "scalar" });
@@ -2517,10 +2715,7 @@ var WGSLTarget = {
   emitAssignment(target, expression, ctx) {
     let expr = expression;
     if (ctx.loopDepth > 0) {
-      expr = expr.replace(
-        /(\w+)\[(\w+)\]\.(\w+)/g,
-        "_loop_other.$3"
-      );
+      expr = expr.replace(/(\w+)\[(\w+)\]\.(\w+)/g, "_loop_other.$3");
     }
     const transpiled = transpileExpression(expr, ctx);
     return [`${target} = ${transpiled};`];
@@ -2603,13 +2798,26 @@ fn main(
 }`.trim();
     const helpers = hasTrailMap ? WGSL_HELPERS : "";
     const obstacleHelpers = hasObstacles ? WGSL_OBSTACLE_HELPERS : "";
-    return [agentStruct, inputStruct, trailMapReadBinding, randomValuesBinding, trailMapWriteBinding, obstaclesBinding, obstacleHelpers, helpers, computeFn].join("\n\n");
+    return [
+      agentStruct,
+      inputStruct,
+      trailMapReadBinding,
+      randomValuesBinding,
+      trailMapWriteBinding,
+      obstaclesBinding,
+      obstacleHelpers,
+      helpers,
+      computeFn
+    ].join("\n\n");
   }
 };
 function compileDSLtoWGSL(lines, inputs, randomInputs = [], numRandomCalls = 0) {
   const ctx = createContext(inputs, randomInputs, numRandomCalls);
   const statements = transpileDSL(lines, WGSLTarget, ctx);
-  return { code: WGSLTarget.emitProgram(statements, inputs, randomInputs, ctx), errors: ctx.errors };
+  return {
+    code: WGSLTarget.emitProgram(statements, inputs, randomInputs, ctx),
+    errors: ctx.errors
+  };
 }
 
 // src/compiler/compiler.ts
@@ -2663,7 +2871,15 @@ var Compiler = class {
     this.ensureRandomValuesDependency(inputs, randomInputs, lines);
     const inlineRandomCount = this.countInlineRandomCalls(lines);
     const numRandomCalls = randomInputs.length + inlineRandomCount;
-    return { lines, inputs, definedInputs, trailEnvironmentConfig, randomInputs, speciesCount, numRandomCalls };
+    return {
+      lines,
+      inputs,
+      definedInputs,
+      trailEnvironmentConfig,
+      randomInputs,
+      speciesCount,
+      numRandomCalls
+    };
   }
   /** Count `random()` call sites across all DSL lines. */
   countInlineRandomCalls(lines) {
@@ -2720,7 +2936,9 @@ var Compiler = class {
   }
   /** Extract the numeric value and optional `[min, max]` range from a value part. */
   parseValueWithRange(valuePart) {
-    const rangeMatch = valuePart.match(/^(.+?)\s*\[\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\]\s*$/);
+    const rangeMatch = valuePart.match(
+      /^(.+?)\s*\[\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\]\s*$/
+    );
     if (rangeMatch) {
       return {
         value: rangeMatch[1].trim(),
@@ -2756,10 +2974,14 @@ var Compiler = class {
   }
   /** Collect all required input names from explicit references and command dependencies. */
   extractInputs(dsl, lines, definedInputs, randomInputs) {
-    const explicitInputs = Array.from(dsl.matchAll(/inputs\.([a-zA-Z_]\w*)/g)).map((m) => m[1]);
+    const explicitInputs = Array.from(
+      dsl.matchAll(/inputs\.([a-zA-Z_]\w*)/g)
+    ).map((m) => m[1]);
     const definedNames = definedInputs.map((d) => d.name);
     const inputs = new Set(
-      [...explicitInputs, ...definedNames].filter((name) => !randomInputs.includes(name))
+      [...explicitInputs, ...definedNames].filter(
+        (name) => !randomInputs.includes(name)
+      )
     );
     this.addCommandDependencies(lines, inputs);
     return Array.from(inputs);
@@ -2769,7 +2991,9 @@ var Compiler = class {
     for (const line of lines) {
       const parsed = DSLParser.parseCommandLine(line.content.trim());
       if (parsed && COMMAND_INPUT_DEPENDENCIES[parsed.command]) {
-        COMMAND_INPUT_DEPENDENCIES[parsed.command].forEach((input) => inputs.add(input));
+        COMMAND_INPUT_DEPENDENCIES[parsed.command].forEach(
+          (input) => inputs.add(input)
+        );
       }
     }
   }
@@ -2820,9 +3044,24 @@ var Compiler = class {
   /** Compile preprocessed DSL to all three backends (JS, WGSL, WAT). */
   compileToAllTargets(preprocessed) {
     const { lines, inputs, randomInputs, numRandomCalls } = preprocessed;
-    const jsResult = compileDSLtoJS(lines, inputs, randomInputs, numRandomCalls);
-    const wgslResult = compileDSLtoWGSL(lines, inputs, randomInputs, numRandomCalls);
-    const watResult = compileDSLtoWAT(lines, inputs, randomInputs, numRandomCalls);
+    const jsResult = compileDSLtoJS(
+      lines,
+      inputs,
+      randomInputs,
+      numRandomCalls
+    );
+    const wgslResult = compileDSLtoWGSL(
+      lines,
+      inputs,
+      randomInputs,
+      numRandomCalls
+    );
+    const watResult = compileDSLtoWAT(
+      lines,
+      inputs,
+      randomInputs,
+      numRandomCalls
+    );
     return {
       jsCode: jsResult.code,
       wgslCode: wgslResult.code,
@@ -2957,7 +3196,10 @@ var WebWorkers = class {
       };
     }
     return new Promise((resolve, reject) => {
-      const activeWorkers = Math.min(this.workers.length, Math.max(1, agents.length));
+      const activeWorkers = Math.min(
+        this.workers.length,
+        Math.max(1, agents.length)
+      );
       const agentsPerWorker = Math.ceil(agents.length / activeWorkers);
       const requestId = this.nextRequestId++;
       const sanitizedInputValues = this.sanitizeWorkerInputs(inputValues);
@@ -3007,7 +3249,12 @@ var WebWorkers = class {
           if (data.type !== "result") {
             return;
           }
-          results.push({ index, agents: data.agents, depositDelta: data.depositDelta, time: data.executionTime });
+          results.push({
+            index,
+            agents: data.agents,
+            depositDelta: data.depositDelta,
+            time: data.executionTime
+          });
           maxWorkerTime = Math.max(maxWorkerTime, data.executionTime);
           completedWorkers++;
           if (completedWorkers !== assignedWorkers.length || settled) {
@@ -3098,14 +3345,20 @@ var WebWorkers = class {
             return;
           }
           if (data.type === "error") {
-            reject(new Error(`Worker ${index} failed to initialize: ${data.message}`));
+            reject(
+              new Error(
+                `Worker ${index} failed to initialize: ${data.message}`
+              )
+            );
             return;
           }
           reject(new Error(`Worker ${index} sent unexpected init response.`));
         };
         const onError = (error) => {
           cleanup();
-          reject(new Error(`Worker ${index} initialization error: ${error.message}`));
+          reject(
+            new Error(`Worker ${index} initialization error: ${error.message}`)
+          );
         };
         const cleanup = () => {
           worker.removeEventListener("message", onMessage);
@@ -3126,7 +3379,9 @@ var WebWorkers = class {
   /** Create worker threads from an inline Blob script. */
   createWorkers(numWorkers) {
     this.logger.info(`Creating ${numWorkers} web workers.`);
-    const scriptUrl = URL.createObjectURL(new Blob([WorkerScript], { type: "application/javascript" }));
+    const scriptUrl = URL.createObjectURL(
+      new Blob([WorkerScript], { type: "application/javascript" })
+    );
     const workers = [];
     for (let i = 0; i < numWorkers; i++) {
       workers.push(new Worker(scriptUrl));
@@ -3287,7 +3542,13 @@ var _GPU = class _GPU {
    */
   writeBuffer(device, buffer, data) {
     if (!data.byteLength) return;
-    device.queue.writeBuffer(buffer, 0, data.buffer, data.byteOffset, data.byteLength);
+    device.queue.writeBuffer(
+      buffer,
+      0,
+      data.buffer,
+      data.byteOffset,
+      data.byteLength
+    );
   }
   /**
    * Get the preferred texture format for the configured canvas.
@@ -3396,8 +3657,16 @@ var WebGPU = class {
     this.hasTrailMap = this.inputsExpected.includes("trailMap");
     this.hasObstacles = this.inputsExpected.includes("obstacles");
     const bindGroupEntries = [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
+      {
+        binding: 0,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "storage" }
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "uniform" }
+      }
     ];
     if (this.hasTrailMap) {
       bindGroupEntries.push({
@@ -3439,12 +3708,17 @@ var WebGPU = class {
       entries: bindGroupEntries
     });
     this.computePipeline = device.createComputePipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] }),
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [this.bindGroupLayout]
+      }),
       compute: { module, entryPoint: "main" }
     });
     device.popErrorScope().then((error) => {
       if (error) {
-        this.logger.error("WebGPU Validation Error during initialization:", error.message);
+        this.logger.error(
+          "WebGPU Validation Error during initialization:",
+          error.message
+        );
       }
     });
     this.maxWorkgroupsPerDimension = device.limits?.maxComputeWorkgroupsPerDimension ?? this.maxWorkgroupsPerDimension;
@@ -3563,18 +3837,38 @@ var WebGPU = class {
                 outputMap[idx] = diffused * decayMult;
             }
         `;
-    const diffuseModule = device.createShaderModule({ code: DIFFUSE_DECAY_WGSL });
+    const diffuseModule = device.createShaderModule({
+      code: DIFFUSE_DECAY_WGSL
+    });
     this.diffuseDecayBindGroupLayout = device.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
+        {
+          binding: 0,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "read-only-storage" }
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "storage" }
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "uniform" }
+        },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "read-only-storage" }
+        }
         // deposit map
       ]
     });
     this.diffuseDecayPipeline = device.createComputePipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.diffuseDecayBindGroupLayout] }),
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [this.diffuseDecayBindGroupLayout]
+      }),
       compute: { module: diffuseModule, entryPoint: "main" }
     });
     this.logger.info("Diffuse/decay GPU compute pipeline initialized.");
@@ -3583,14 +3877,20 @@ var WebGPU = class {
    * Encode the diffuse+decay pass in the current command encoder and ping-pong the trail buffers.
    */
   encodeDiffuseDecayGPU(device, encoder, width, height, decayFactor) {
-    if (!this.diffuseDecayPipeline || !this.diffuseDecayBindGroupLayout || !this.diffuseUniformBuffer) return;
-    if (!this.trailMapBuffer || !this.trailMapBuffer2 || !this.trailMapDeposits) return;
+    if (!this.diffuseDecayPipeline || !this.diffuseDecayBindGroupLayout || !this.diffuseUniformBuffer)
+      return;
+    if (!this.trailMapBuffer || !this.trailMapBuffer2 || !this.trailMapDeposits)
+      return;
     if (width <= 0 || height <= 0) return;
     this.diffuseUniformView.setUint32(0, width, true);
     this.diffuseUniformView.setUint32(4, height, true);
     this.diffuseUniformView.setFloat32(8, decayFactor, true);
     this.diffuseUniformView.setFloat32(12, 0, true);
-    device.queue.writeBuffer(this.diffuseUniformBuffer, 0, this.diffuseUniformData);
+    device.queue.writeBuffer(
+      this.diffuseUniformBuffer,
+      0,
+      this.diffuseUniformData
+    );
     const bindGroup = device.createBindGroup({
       layout: this.diffuseDecayBindGroupLayout,
       entries: [
@@ -3611,7 +3911,10 @@ var WebGPU = class {
     pass.end();
     const trailMapSize = width * height * FLOAT_SIZE;
     encoder.clearBuffer(this.trailMapDeposits, 0, trailMapSize);
-    [this.trailMapBuffer, this.trailMapBuffer2] = [this.trailMapBuffer2, this.trailMapBuffer];
+    [this.trailMapBuffer, this.trailMapBuffer2] = [
+      this.trailMapBuffer2,
+      this.trailMapBuffer
+    ];
   }
   /**
    * Run the compute shader with results kept on GPU (for GPU rendering).
@@ -3639,8 +3942,11 @@ var WebGPU = class {
    *  - Copy storage -> staging -> CPU only for the active agent range.
    */
   async _compute(agents, inputs, readback) {
-    this.logger.log(`Starting WebGPU compute for ${agents.length} agents (readback: ${readback})`);
-    if (!this.device || !this.computePipeline) throw new Error("WebGPU not initialized");
+    this.logger.log(
+      `Starting WebGPU compute for ${agents.length} agents (readback: ${readback})`
+    );
+    if (!this.device || !this.computePipeline)
+      throw new Error("WebGPU not initialized");
     const setupStart = performance.now();
     const device = this.device;
     const incomingAgentCount = agents.length;
@@ -3659,7 +3965,13 @@ var WebGPU = class {
     const encoder = device.createCommandEncoder();
     const copySize = this.agentCount > 0 ? this.byteSizeForAgents(this.agentCount) : 0;
     if (copySize > 0) {
-      encoder.copyBufferToBuffer(this.agentStorageBuffer, 0, this.agentsReadBuffer, 0, copySize);
+      encoder.copyBufferToBuffer(
+        this.agentStorageBuffer,
+        0,
+        this.agentsReadBuffer,
+        0,
+        copySize
+      );
     }
     let doAgentReadback = false;
     let logCopySize = 0;
@@ -3670,15 +3982,30 @@ var WebGPU = class {
         { binding: 6, resource: { buffer: this.agentLogBuffer } }
       ];
       if (this.hasTrailMap && this.trailMapBuffer && this.trailMapDeposits) {
-        bindGroupEntries.push({ binding: 2, resource: { buffer: this.trailMapBuffer } });
-        bindGroupEntries.push({ binding: 4, resource: { buffer: this.trailMapDeposits } });
+        bindGroupEntries.push({
+          binding: 2,
+          resource: { buffer: this.trailMapBuffer }
+        });
+        bindGroupEntries.push({
+          binding: 4,
+          resource: { buffer: this.trailMapDeposits }
+        });
       }
       if (this.randomValuesBuffer && this.inputsExpected.includes("randomValues")) {
-        bindGroupEntries.push({ binding: 3, resource: { buffer: this.randomValuesBuffer } });
+        bindGroupEntries.push({
+          binding: 3,
+          resource: { buffer: this.randomValuesBuffer }
+        });
       }
-      bindGroupEntries.push({ binding: 5, resource: { buffer: this.agentsReadBuffer } });
+      bindGroupEntries.push({
+        binding: 5,
+        resource: { buffer: this.agentsReadBuffer }
+      });
       if (this.hasObstacles && this.obstaclesBuffer) {
-        bindGroupEntries.push({ binding: 7, resource: { buffer: this.obstaclesBuffer } });
+        bindGroupEntries.push({
+          binding: 7,
+          resource: { buffer: this.obstaclesBuffer }
+        });
       }
       const bindGroup = device.createBindGroup({
         layout: this.bindGroupLayout,
@@ -3701,12 +4028,30 @@ var WebGPU = class {
       pass.end();
       if (!readback && copySize > 0) {
         this.ensureVertexBuffer(device, copySize);
-        encoder.copyBufferToBuffer(this.agentStorageBuffer, 0, this.agentVertexBuffer, 0, copySize);
+        encoder.copyBufferToBuffer(
+          this.agentStorageBuffer,
+          0,
+          this.agentVertexBuffer,
+          0,
+          copySize
+        );
       }
       if (readback && copySize > 0) {
-        encoder.copyBufferToBuffer(this.agentStorageBuffer, 0, this.stagingReadbackBuffer, 0, copySize);
+        encoder.copyBufferToBuffer(
+          this.agentStorageBuffer,
+          0,
+          this.stagingReadbackBuffer,
+          0,
+          copySize
+        );
         if (logCopySize > 0) {
-          encoder.copyBufferToBuffer(this.agentLogBuffer, 0, this.stagingLogBuffer, 0, logCopySize);
+          encoder.copyBufferToBuffer(
+            this.agentLogBuffer,
+            0,
+            this.stagingLogBuffer,
+            0,
+            logCopySize
+          );
         }
         doAgentReadback = true;
       }
@@ -3724,7 +4069,13 @@ var WebGPU = class {
       trailReadbackSize = outputTrailMap.byteLength;
       if (trailReadbackSize > 0) {
         this.ensureTrailReadbackBuffer(device, trailReadbackSize);
-        encoder.copyBufferToBuffer(this.trailMapBuffer, 0, this.stagingTrailReadbackBuffer, 0, trailReadbackSize);
+        encoder.copyBufferToBuffer(
+          this.trailMapBuffer,
+          0,
+          this.stagingTrailReadbackBuffer,
+          0,
+          trailReadbackSize
+        );
         doTrailReadback = true;
       }
     }
@@ -3736,7 +4087,9 @@ var WebGPU = class {
     if (doAgentReadback) {
       await this.stagingReadbackBuffer.mapAsync(GPUMapMode.READ, 0, copySize);
       try {
-        const data = new Float32Array(this.stagingReadbackBuffer.getMappedRange(0, copySize));
+        const data = new Float32Array(
+          this.stagingReadbackBuffer.getMappedRange(0, copySize)
+        );
         updatedAgents = agents;
         for (let i = 0; i < this.agentCount; i++) {
           const base = i * COMPONENTS_PER_AGENT;
@@ -3752,9 +4105,15 @@ var WebGPU = class {
       }
     }
     if (doTrailReadback && outputTrailMap) {
-      await this.stagingTrailReadbackBuffer.mapAsync(GPUMapMode.READ, 0, trailReadbackSize);
+      await this.stagingTrailReadbackBuffer.mapAsync(
+        GPUMapMode.READ,
+        0,
+        trailReadbackSize
+      );
       try {
-        const src = new Float32Array(this.stagingTrailReadbackBuffer.getMappedRange(0, trailReadbackSize));
+        const src = new Float32Array(
+          this.stagingTrailReadbackBuffer.getMappedRange(0, trailReadbackSize)
+        );
         outputTrailMap.set(src);
       } finally {
         this.stagingTrailReadbackBuffer.unmap();
@@ -3763,7 +4122,9 @@ var WebGPU = class {
     if (doAgentReadback && logCopySize > 0) {
       await this.stagingLogBuffer.mapAsync(GPUMapMode.READ, 0, logCopySize);
       try {
-        const logData = new Float32Array(this.stagingLogBuffer.getMappedRange(0, logCopySize));
+        const logData = new Float32Array(
+          this.stagingLogBuffer.getMappedRange(0, logCopySize)
+        );
         for (let i = 0; i < this.agentCount; i++) {
           const isEnabled = logData[i * 2];
           const value = logData[i * 2 + 1];
@@ -3833,7 +4194,13 @@ var WebGPU = class {
       this.inputUniformCapacity = aligned;
     }
     const f32 = new Float32Array(values);
-    device.queue.writeBuffer(this.inputUniformBuffer, 0, f32.buffer, f32.byteOffset, byteLen);
+    device.queue.writeBuffer(
+      this.inputUniformBuffer,
+      0,
+      f32.buffer,
+      f32.byteOffset,
+      byteLen
+    );
     if (this.hasTrailMap && inputs.trailMap) {
       const trailMap = inputs.trailMap;
       const size = trailMap.byteLength;
@@ -3864,7 +4231,13 @@ var WebGPU = class {
         this.trailMapGPUSeeded = false;
       }
       if (!this.trailMapGPUSeeded) {
-        device.queue.writeBuffer(this.trailMapBuffer, 0, trailMap.buffer, trailMap.byteOffset, trailMap.byteLength);
+        device.queue.writeBuffer(
+          this.trailMapBuffer,
+          0,
+          trailMap.buffer,
+          trailMap.byteOffset,
+          trailMap.byteLength
+        );
         const zeros = new Float32Array(trailMap.length);
         device.queue.writeBuffer(this.trailMapBuffer2, 0, zeros);
         device.queue.writeBuffer(this.trailMapDeposits, 0, zeros);
@@ -3885,7 +4258,13 @@ var WebGPU = class {
         );
         this.randomValuesCapacity = size;
       }
-      device.queue.writeBuffer(this.randomValuesBuffer, 0, randomValues.buffer, randomValues.byteOffset, randomValues.byteLength);
+      device.queue.writeBuffer(
+        this.randomValuesBuffer,
+        0,
+        randomValues.buffer,
+        randomValues.byteOffset,
+        randomValues.byteLength
+      );
     }
     if (this.hasObstacles) {
       const obstacleArray = Array.isArray(inputs.obstacles) ? inputs.obstacles : [];
@@ -3909,7 +4288,13 @@ var WebGPU = class {
         obstacleData[i * 4 + 2] = ob.w;
         obstacleData[i * 4 + 3] = ob.h;
       }
-      device.queue.writeBuffer(this.obstaclesBuffer, 0, obstacleData.buffer, obstacleData.byteOffset, obstacleData.byteLength);
+      device.queue.writeBuffer(
+        this.obstaclesBuffer,
+        0,
+        obstacleData.buffer,
+        obstacleData.byteOffset,
+        obstacleData.byteLength
+      );
     }
   }
   ensureTrailReadbackBuffer(device, size) {
@@ -3940,7 +4325,10 @@ var WebGPU = class {
     }
   }
   byteSizeForAgents(n) {
-    return Math.max(n * COMPONENTS_PER_AGENT * FLOAT_SIZE, COMPONENTS_PER_AGENT * FLOAT_SIZE);
+    return Math.max(
+      n * COMPONENTS_PER_AGENT * FLOAT_SIZE,
+      COMPONENTS_PER_AGENT * FLOAT_SIZE
+    );
   }
   computeDispatchDimensions(totalWorkgroups) {
     if (!totalWorkgroups) return [0, 1, 1];
@@ -4090,7 +4478,10 @@ var WebAssemblyCompute = class {
     f32.set(packedAgents, layout.agentsReadPtr >>> 2);
     this.setGlobal("agentsReadPtr", layout.agentsReadPtr);
     if (inputs.trailMapRead && layout.trailMapReadPtr > 0) {
-      f32.set(inputs.trailMapRead, layout.trailMapReadPtr >>> 2);
+      f32.set(
+        inputs.trailMapRead,
+        layout.trailMapReadPtr >>> 2
+      );
       this.setGlobal("trailMapReadPtr", layout.trailMapReadPtr);
     }
     if (inputs.trailMapWrite && layout.trailMapWritePtr > 0) {
@@ -4104,7 +4495,10 @@ var WebAssemblyCompute = class {
       this.setGlobal(`inputs_${key}`, value);
     }
     if (inputs.randomValues && layout.randomValuesPtr > 0) {
-      f32.set(inputs.randomValues, layout.randomValuesPtr >>> 2);
+      f32.set(
+        inputs.randomValues,
+        layout.randomValuesPtr >>> 2
+      );
       this.setGlobal("randomValuesPtr", layout.randomValuesPtr);
     }
     if (layout.obstaclesCount > 0 && layout.obstaclesPtr > 0) {
@@ -4133,7 +4527,9 @@ var WebAssemblyCompute = class {
     if (inputs.trailMapWrite && layout.trailMapWritePtr > 0) {
       const destination = inputs.trailMapWrite;
       const readStartIndex = layout.trailMapWritePtr >>> 2;
-      destination.set(this.f32.subarray(readStartIndex, readStartIndex + destination.length));
+      destination.set(
+        this.f32.subarray(readStartIndex, readStartIndex + destination.length)
+      );
     }
     const readEnd = performance.now();
     return {
@@ -4194,7 +4590,9 @@ var WebAssemblyCompute = class {
     }
     const currentBytes = this.memory.buffer.byteLength;
     if (totalBytesNeeded > currentBytes) {
-      const pagesNeeded = Math.ceil((totalBytesNeeded - currentBytes) / wasmPageSize);
+      const pagesNeeded = Math.ceil(
+        (totalBytesNeeded - currentBytes) / wasmPageSize
+      );
       if (pagesNeeded > 0) {
         this.memory.grow(pagesNeeded);
         this.f32 = new Float32Array(this.memory.buffer);
@@ -4365,10 +4763,17 @@ var ComputeEngine = class {
   }
   async getWebGPUInstance() {
     if (!this._WebGPU) {
-      this._WebGPU = new WebGPU(this.compilationResult.wgslCode, this.compilationResult.requiredInputs, this.agentCount);
+      this._WebGPU = new WebGPU(
+        this.compilationResult.wgslCode,
+        this.compilationResult.requiredInputs,
+        this.agentCount
+      );
       if (this.gpuDevice) {
         const start = performance.now();
-        this._WebGPUInitPromise = this._WebGPU.init(this.gpuDevice, this.agentCount);
+        this._WebGPUInitPromise = this._WebGPU.init(
+          this.gpuDevice,
+          this.agentCount
+        );
         await this._WebGPUInitPromise;
         this.compileTimes["WebGPU"] = performance.now() - start;
       }
@@ -4380,7 +4785,10 @@ var ComputeEngine = class {
   async getWebAssemblyInstance() {
     if (!this._WebAssembly) {
       const start = performance.now();
-      this._WebAssembly = new WebAssemblyCompute(this.compilationResult.WASMCode, this.agentCount);
+      this._WebAssembly = new WebAssemblyCompute(
+        this.compilationResult.WASMCode,
+        this.agentCount
+      );
       this._WebAssemblyInitPromise = this._WebAssembly.init();
       await this._WebAssemblyInitPromise;
       this.compileTimes["WebAssembly"] = performance.now() - start;
@@ -4398,7 +4806,12 @@ var ComputeEngine = class {
    * @param device - The WebGPU device obtained from the Renderer.
    */
   initGPU(device) {
-    this.logger.log("Initializing ComputeEngine with GPU device:", device, "and agent count:", this.agentCount);
+    this.logger.log(
+      "Initializing ComputeEngine with GPU device:",
+      device,
+      "and agent count:",
+      this.agentCount
+    );
     this.gpuDevice = device;
     if (this._WebGPU && !this._WebGPUInitPromise) {
       const start = performance.now();
@@ -4441,7 +4854,10 @@ var ComputeEngine = class {
   }
   async runOnWASM(agents, inputs) {
     const instance = await this.getWebAssemblyInstance();
-    const { agents: updatedAgents, performance: wasmPerf } = instance.compute(agents, inputs);
+    const { agents: updatedAgents, performance: wasmPerf } = instance.compute(
+      agents,
+      inputs
+    );
     this.logPerformance("WebAssembly", updatedAgents.length, {
       setupTime: wasmPerf.writeTime,
       computeTime: wasmPerf.computeTime,
@@ -4467,7 +4883,7 @@ var ComputeEngine = class {
       specificStats: {
         "Buffer Setup": gpuPerf.setupTime,
         "GPU Dispatch": gpuPerf.dispatchTime,
-        "Readback": gpuPerf.readbackTime
+        Readback: gpuPerf.readbackTime
       }
     });
     if (renderResources) {
@@ -4477,7 +4893,11 @@ var ComputeEngine = class {
   }
   async runOnWebWorkers(agents, inputs) {
     const instance = this.WebWorkersInstance;
-    const { agents: updatedAgents, trailMap: depositDeltas, performance: workerPerf } = await instance.compute(agents, inputs);
+    const {
+      agents: updatedAgents,
+      trailMap: depositDeltas,
+      performance: workerPerf
+    } = await instance.compute(agents, inputs);
     if (depositDeltas && inputs.trailMapWrite) {
       const writeBuffer = inputs.trailMapWrite;
       for (let i = 0; i < depositDeltas.length; i++) {
@@ -4489,16 +4909,18 @@ var ComputeEngine = class {
       computeTime: workerPerf.workerTime,
       readbackTime: workerPerf.deserializationTime,
       specificStats: {
-        "Serialization": workerPerf.serializationTime,
+        Serialization: workerPerf.serializationTime,
         "Worker Compute": workerPerf.workerTime,
-        "Deserialization": workerPerf.deserializationTime
+        Deserialization: workerPerf.deserializationTime
       }
     });
     return updatedAgents;
   }
   async runOnMainThread(agents, inputs) {
     const computeStart = performance.now();
-    const updatedAgents = agents.map((agent) => this.agentFunction({ ...agent }, inputs));
+    const updatedAgents = agents.map(
+      (agent) => this.agentFunction({ ...agent }, inputs)
+    );
     const computeEnd = performance.now();
     const computeTime = computeEnd - computeStart;
     this.logPerformance("JavaScript", updatedAgents.length, {
@@ -4550,10 +4972,17 @@ var ComputeEngine = class {
   /** Build the agent update function from compiled JavaScript source. */
   buildAgentFunction() {
     try {
-      return new Function(`return ${this.compilationResult.jsCode}`)();
+      return new Function(
+        `return ${this.compilationResult.jsCode}`
+      )();
     } catch (err) {
-      this.logger?.error("Failed to build agent function from compiled JS:", err);
-      throw new Error(`Failed to compile agent function: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger?.error(
+        "Failed to build agent function from compiled JS:",
+        err
+      );
+      throw new Error(
+        `Failed to compile agent function: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 };
@@ -4604,7 +5033,10 @@ var PerformanceMonitor = class {
     }
     const method = this._frames[0].method;
     const count = this._frames.length;
-    const totalTime = this._frames.reduce((sum, f) => sum + f.totalExecutionTime, 0);
+    const totalTime = this._frames.reduce(
+      (sum, f) => sum + f.totalExecutionTime,
+      0
+    );
     const avgTime = totalTime / count;
     const avgSetup = this._frames.reduce((sum, f) => sum + (f.setupTime || 0), 0) / count;
     const avgCompute = this._frames.reduce((sum, f) => sum + (f.computeTime || 0), 0) / count;
@@ -4613,15 +5045,22 @@ var PerformanceMonitor = class {
     this.logger.info(`Performance Summary for ${method}:`);
     this.logger.info(`  Frames: ${count}`);
     this.logger.info(`  Avg Total Time: ${avgTime.toFixed(2)} ms`);
-    if (avgSetup > 0) this.logger.info(`  Avg Setup Time: ${avgSetup.toFixed(2)} ms`);
-    if (avgCompute > 0) this.logger.info(`  Avg Compute Time: ${avgCompute.toFixed(2)} ms`);
-    if (avgRender > 0) this.logger.info(`  Avg Render Time: ${avgRender.toFixed(2)} ms`);
-    if (avgReadback > 0) this.logger.info(`  Avg Readback Time: ${avgReadback.toFixed(2)} ms`);
+    if (avgSetup > 0)
+      this.logger.info(`  Avg Setup Time: ${avgSetup.toFixed(2)} ms`);
+    if (avgCompute > 0)
+      this.logger.info(`  Avg Compute Time: ${avgCompute.toFixed(2)} ms`);
+    if (avgRender > 0)
+      this.logger.info(`  Avg Render Time: ${avgRender.toFixed(2)} ms`);
+    if (avgReadback > 0)
+      this.logger.info(`  Avg Readback Time: ${avgReadback.toFixed(2)} ms`);
     const firstFrameStats = this._frames[0].specificStats;
     if (firstFrameStats) {
       this.logger.info(`  Specific Stats (Avg):`);
       for (const key of Object.keys(firstFrameStats)) {
-        const avgStat = this._frames.reduce((sum, f) => sum + (f.specificStats?.[key] || 0), 0) / count;
+        const avgStat = this._frames.reduce(
+          (sum, f) => sum + (f.specificStats?.[key] || 0),
+          0
+        ) / count;
         this.logger.info(`    ${key}: ${avgStat.toFixed(2)} ms`);
       }
     }
@@ -4861,8 +5300,16 @@ var Renderer = class {
     }
     this.gpuBindGroupLayout = device.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform" }
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform" }
+        }
       ]
     });
     const shaderCode = `
@@ -4912,26 +5359,53 @@ var Renderer = class {
     `;
     const shaderModule = device.createShaderModule({ code: shaderCode });
     this.gpuPipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.gpuBindGroupLayout] }),
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [this.gpuBindGroupLayout]
+      }),
       vertex: {
         module: shaderModule,
         entryPoint: "vs_main",
         buffers: [
-          { arrayStride: 2 * GPU_FLOAT_SIZE, attributes: [{ shaderLocation: 0, format: "float32x2", offset: 0 }] },
+          {
+            arrayStride: 2 * GPU_FLOAT_SIZE,
+            attributes: [
+              {
+                shaderLocation: 0,
+                format: "float32x2",
+                offset: 0
+              }
+            ]
+          },
           {
             arrayStride: GPU_AGENT_STRIDE,
             stepMode: "instance",
             attributes: [
-              { shaderLocation: 1, format: "float32x2", offset: GPU_FLOAT_SIZE },
-              { shaderLocation: 2, format: "float32", offset: 5 * GPU_FLOAT_SIZE }
+              {
+                shaderLocation: 1,
+                format: "float32x2",
+                offset: GPU_FLOAT_SIZE
+              },
+              {
+                shaderLocation: 2,
+                format: "float32",
+                offset: 5 * GPU_FLOAT_SIZE
+              }
             ]
           }
         ]
       },
-      fragment: { module: shaderModule, entryPoint: "fs_main", targets: [{ format: this.gpuHelper.getFormat() }] },
+      fragment: {
+        module: shaderModule,
+        entryPoint: "fs_main",
+        targets: [{ format: this.gpuHelper.getFormat() }]
+      },
       primitive: { topology: "triangle-list" }
     });
-    this.gpuQuadBuffer = this.gpuHelper.createBuffer(device, GPU_QUAD_VERTICES, GPUBufferUsage.VERTEX);
+    this.gpuQuadBuffer = this.gpuHelper.createBuffer(
+      device,
+      GPU_QUAD_VERTICES,
+      GPUBufferUsage.VERTEX
+    );
     this.gpuPipelineDevice = device;
   }
   /**
@@ -4944,8 +5418,16 @@ var Renderer = class {
     if (this.gpuTrailPipeline && this.gpuPipelineDevice === device) return;
     this.gpuTrailBindGroupLayout = device.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
+        {
+          binding: 0,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: "read-only-storage" }
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform" }
+        }
       ]
     });
     const shaderCode = `
@@ -4988,24 +5470,39 @@ var Renderer = class {
     `;
     const shaderModule = device.createShaderModule({ code: shaderCode });
     this.gpuTrailPipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.gpuTrailBindGroupLayout] }),
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [this.gpuTrailBindGroupLayout]
+      }),
       vertex: {
         module: shaderModule,
         entryPoint: "vs_main",
         buffers: [
-          { arrayStride: 2 * GPU_FLOAT_SIZE, attributes: [{ shaderLocation: 0, format: "float32x2", offset: 0 }] }
+          {
+            arrayStride: 2 * GPU_FLOAT_SIZE,
+            attributes: [{ shaderLocation: 0, format: "float32x2", offset: 0 }]
+          }
         ]
       },
       fragment: {
         module: shaderModule,
         entryPoint: "fs_main",
-        targets: [{
-          format: this.gpuHelper.getFormat(),
-          blend: {
-            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" }
+        targets: [
+          {
+            format: this.gpuHelper.getFormat(),
+            blend: {
+              color: {
+                srcFactor: "src-alpha",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add"
+              },
+              alpha: {
+                srcFactor: "one",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add"
+              }
+            }
           }
-        }]
+        ]
       },
       primitive: { topology: "triangle-list" }
     });
@@ -5021,15 +5518,34 @@ var Renderer = class {
   prepareAgentBuffer(device, agents) {
     const data = new Float32Array(agents.length * GPU_AGENT_COMPONENTS);
     for (let i = 0; i < agents.length; i++) {
-      data.set([agents[i].id, agents[i].x, agents[i].y, agents[i].vx, agents[i].vy, agents[i].species || 0], i * GPU_AGENT_COMPONENTS);
+      data.set(
+        [
+          agents[i].id,
+          agents[i].x,
+          agents[i].y,
+          agents[i].vx,
+          agents[i].vy,
+          agents[i].species || 0
+        ],
+        i * GPU_AGENT_COMPONENTS
+      );
     }
     if (!this.gpuAgentBuffer || this.gpuAgentBufferSize < data.byteLength) {
-      this.gpuAgentBuffer = this.gpuHelper.createBuffer(device, data, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
+      this.gpuAgentBuffer = this.gpuHelper.createBuffer(
+        device,
+        data,
+        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+      );
       this.gpuAgentBufferSize = data.byteLength;
     } else {
       this.gpuHelper.writeBuffer(device, this.gpuAgentBuffer, data);
     }
-    return { device, agentVertexBuffer: this.gpuAgentBuffer, agentCount: agents.length, agentStride: GPU_AGENT_STRIDE };
+    return {
+      device,
+      agentVertexBuffer: this.gpuAgentBuffer,
+      agentCount: agents.length,
+      agentStride: GPU_AGENT_STRIDE
+    };
   }
   /**
    * Upload a CPU-side trail map to a GPU storage buffer for rendering.
@@ -5114,7 +5630,14 @@ var Renderer = class {
     const clearColor = { r: bgRgb.r, g: bgRgb.g, b: bgRgb.b, a: 1 };
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
-      colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: clearColor, loadOp: "clear", storeOp: "store" }]
+      colorAttachments: [
+        {
+          view: ctx.getCurrentTexture().createView(),
+          clearValue: clearColor,
+          loadOp: "clear",
+          storeOp: "store"
+        }
+      ]
     });
     const activeTrailBuffer = trailBuffer || this.gpuManualTrailBuffer || resources.trailMapBuffer;
     if (this.appearance.showTrails && activeTrailBuffer && this.gpuTrailPipeline && this.gpuTrailBindGroupLayout) {
@@ -5316,7 +5839,9 @@ var sanitizeInputValue = (value) => {
           return item;
         }
         const result = {};
-        for (const [key, nested] of Object.entries(item)) {
+        for (const [key, nested] of Object.entries(
+          item
+        )) {
           if (typeof nested === "number" || typeof nested === "string" || typeof nested === "boolean" || nested == null) {
             result[key] = nested;
           }
@@ -5337,7 +5862,9 @@ var sanitizeInputValue = (value) => {
   }
   if (value && typeof value === "object") {
     const result = {};
-    for (const [key, nested] of Object.entries(value)) {
+    for (const [key, nested] of Object.entries(
+      value
+    )) {
       result[key] = sanitizeInputValue(nested);
     }
     return result;
@@ -5371,7 +5898,9 @@ var SimulationTracker = class {
         options: { ...params.options },
         appearance: { ...params.appearance },
         requiredInputs: [...params.compilationResult.requiredInputs],
-        definedInputs: params.compilationResult.definedInputs.map((def) => ({ ...def }))
+        definedInputs: params.compilationResult.definedInputs.map((def) => ({
+          ...def
+        }))
       },
       metadata: params.metadata
     };
@@ -5421,7 +5950,10 @@ var SimulationTracker = class {
       renderMode: params.renderMode,
       agentPositions: this.options.captureAgentStates ? cloneAgents(params.agents) : void 0,
       inputSnapshot: this.options.captureFrameInputs ? Object.fromEntries(
-        Object.entries(params.inputs ?? {}).map(([key, value]) => [key, sanitizeInputValue(value)])
+        Object.entries(params.inputs ?? {}).map(([key, value]) => [
+          key,
+          sanitizeInputValue(value)
+        ])
       ) : void 0,
       performance: params.performance ? { ...params.performance } : void 0
     });
@@ -5494,7 +6026,9 @@ var SimulationTracker = class {
           options: { ...this.run.configuration.options },
           appearance: { ...this.run.configuration.appearance },
           requiredInputs: [...this.run.configuration.requiredInputs],
-          definedInputs: this.run.configuration.definedInputs.map((input) => ({ ...input }))
+          definedInputs: this.run.configuration.definedInputs.map((input) => ({
+            ...input
+          }))
         },
         environment: this.run.environment ? {
           device: { ...this.run.environment.device },
@@ -5647,7 +6181,12 @@ var Simulation = class {
     this.source = normalizeSource(config);
     const compilationResult = this.source.kind === "dsl" ? this.compiler.compileAgentCode(this.source.code) : compileFromCustomSource(this.source.code);
     this.compilationResult = compilationResult;
-    this.computeEngine = new ComputeEngine(compilationResult, this.performanceMonitor, options.agents, options.workers);
+    this.computeEngine = new ComputeEngine(
+      compilationResult,
+      this.performanceMonitor,
+      options.agents,
+      options.workers
+    );
     if (config.canvas) {
       config.canvas.width = this.width;
       config.canvas.height = this.height;
@@ -5655,9 +6194,17 @@ var Simulation = class {
         config.gpuCanvas.width = this.width;
         config.gpuCanvas.height = this.height;
       }
-      this.renderer = new Renderer(config.canvas, config.gpuCanvas ?? null, this.appearance);
+      this.renderer = new Renderer(
+        config.canvas,
+        config.gpuCanvas ?? null,
+        this.appearance
+      );
     }
-    this.agents = this.createInitialAgents(options.agents, compilationResult.speciesCount ?? 1, options.seed);
+    this.agents = this.createInitialAgents(
+      options.agents,
+      compilationResult.speciesCount ?? 1,
+      options.seed
+    );
     this.tracker = new SimulationTracker({
       source: this.source,
       options,
@@ -5778,7 +6325,9 @@ var Simulation = class {
         mergedInputs[input.name] = input.defaultValue;
       }
     });
-    const missingInputs = this.compilationResult.requiredInputs.filter((name) => !(name in mergedInputs));
+    const missingInputs = this.compilationResult.requiredInputs.filter(
+      (name) => !(name in mergedInputs)
+    );
     if (missingInputs.length > 0) {
       const message = `Missing required input values: ${missingInputs.join(", ")}`;
       this.logger.error(message);
@@ -5909,11 +6458,19 @@ var Simulation = class {
       if (renderMode !== "none" && this.renderer) {
         const renderStart = performance.now();
         if (renderMode === "gpu") {
-          await this.renderer.renderAgentsGPU(nextAgents, this.computeEngine.gpuRenderState, this.trailMap ?? void 0);
+          await this.renderer.renderAgentsGPU(
+            nextAgents,
+            this.computeEngine.gpuRenderState,
+            this.trailMap ?? void 0
+          );
         } else {
           this.renderer.renderBackground();
           if (this.trailMap && this.renderer.getAppearance().showTrails) {
-            this.renderer.renderTrails(this.trailMap, this.renderer.canvas.width, this.renderer.canvas.height);
+            this.renderer.renderTrails(
+              this.trailMap,
+              this.renderer.canvas.width,
+              this.renderer.canvas.height
+            );
           }
           this.renderer.renderAgents(nextAgents);
         }
@@ -5974,6 +6531,20 @@ var Simulation = class {
    */
   exportTrackingReport(filter) {
     return JSON.stringify(this.getTrackingReport(filter), null, 2);
+  }
+  /**
+   * Export the tracking report as a Blob containing a JSON string.
+   *
+   * This is more memory-efficient than `exportTrackingReport` for very large
+   * reports, as it avoids the JavaScript engine's maximum string length limit.
+   *
+   * @param filter - Optional filter to restrict the frame range and inclusions.
+   * @returns A Blob containing the pretty-printed JSON tracking report.
+   */
+  exportTrackingReportBlob(filter) {
+    const report = this.getTrackingReport(filter);
+    const json = JSON.stringify(report, null, 2);
+    return new Blob([json], { type: "application/json" });
   }
   /**
    * Tear down the simulation, releasing all resources.

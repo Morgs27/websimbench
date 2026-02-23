@@ -872,6 +872,16 @@ declare class Simulation {
    */
   exportTrackingReport(filter?: SimulationTrackingFilter): string;
   /**
+   * Export the tracking report as a Blob containing a JSON string.
+   *
+   * This is more memory-efficient than `exportTrackingReport` for very large
+   * reports, as it avoids the JavaScript engine's maximum string length limit.
+   *
+   * @param filter - Optional filter to restrict the frame range and inclusions.
+   * @returns A Blob containing the pretty-printed JSON tracking report.
+   */
+  exportTrackingReportBlob(filter?: SimulationTrackingFilter): Blob;
+  /**
    * Tear down the simulation, releasing all resources.
    *
    * Completes the tracking session, disposes the log listener, destroys
