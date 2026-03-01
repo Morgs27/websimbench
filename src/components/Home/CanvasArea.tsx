@@ -55,7 +55,9 @@ interface CanvasAreaProps {
   benchmarkResult?: BenchmarkResult | null;
   onBenchmarkRun?: () => void;
   onBenchmarkStop?: () => void;
+  onBenchmarkReset?: () => void;
   onBenchmarkDownload?: (index: number) => void;
+  onBenchmarkDownloadFullReport?: () => void;
   onBenchmarkSave?: () => void;
   benchmarkRecentEntries?: BenchmarkEntry[];
   onBenchmarkDownloadRecent?: (id: string) => void;
@@ -137,7 +139,9 @@ export const CanvasArea = ({
   benchmarkResult,
   onBenchmarkRun,
   onBenchmarkStop,
+  onBenchmarkReset,
   onBenchmarkDownload,
+  onBenchmarkDownloadFullReport,
   onBenchmarkSave,
   benchmarkRecentEntries,
   onBenchmarkDownloadRecent,
@@ -338,6 +342,7 @@ export const CanvasArea = ({
         onBenchmarkRun &&
         onBenchmarkStop &&
         onBenchmarkDownload &&
+        onBenchmarkDownloadFullReport &&
         onBenchmarkSave && (
           <BenchmarkPanel
             config={benchmarkConfig}
@@ -347,12 +352,16 @@ export const CanvasArea = ({
             result={benchmarkResult ?? null}
             onRun={onBenchmarkRun}
             onStop={onBenchmarkStop}
+            onReset={onBenchmarkReset ?? (() => {})}
             onDownload={onBenchmarkDownload}
+            onDownloadFullReport={onBenchmarkDownloadFullReport}
             onSave={onBenchmarkSave}
             recentEntries={benchmarkRecentEntries ?? []}
             onDownloadRecent={onBenchmarkDownloadRecent ?? (() => {})}
             onDeleteRecent={onBenchmarkDeleteRecent ?? (() => {})}
             canRun={canRun ?? true}
+            sourceCanvasRef={canvasRef}
+            gpuCanvasRef={gpuCanvasRef}
           />
         )}
     </div>

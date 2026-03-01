@@ -49,6 +49,42 @@ async function runLoop() {
 runLoop();
 ```
 
+## Benchmark Telemetry
+
+Agentyx tracking reports can now capture runtime telemetry suited for scientific benchmarking:
+
+- Per-frame setup/compute/readback/render/compile timings
+- WebGPU API bridge breakdowns (`host->GPU`, `GPU->host`, queue submit)
+- Method and render-mode summaries (`methodSummaries`, `methodRenderSummaries`)
+- Runtime samples (`runtimeSamples`) for JS heap, battery status, and thermal canary drift
+- Device/browser/GPU/WASM capability metadata in `environment`
+
+Example tracking options:
+
+```ts
+options: {
+  agents: 25000,
+  wasmExecutionMode: "auto", // "auto" | "scalar" | "simd"
+},
+
+tracking: {
+  enabled: true,
+  captureFrameInputs: true,
+  captureDeviceMetrics: true,
+  captureRuntimeSamples: true,
+  captureJsHeapSamples: true,
+  captureBatteryStatus: true,
+  captureThermalCanary: true,
+  runtimeSampleIntervalMs: 1000,
+}
+```
+
+`wasmExecutionMode` enables real scalar-vs-SIMD execution splits for WebAssembly benchmarking:
+
+- `"scalar"`: force scalar WASM execution.
+- `"simd"`: require SIMD-enabled WASM execution.
+- `"auto"`: use SIMD when supported, otherwise scalar fallback.
+
 ## Examples
 
 Check out the following examples in the `examples/` directory to see Agentyx in action. These can be run directly in your browser without a build step:

@@ -7,6 +7,15 @@
  */
 
 /**
+ * WebAssembly execution mode.
+ *
+ * - `'auto'` — Use SIMD mode when available, otherwise scalar mode.
+ * - `'scalar'` — Force scalar-only WASM execution.
+ * - `'simd'` — Require SIMD-enabled WASM execution.
+ */
+export type WasmExecutionMode = "auto" | "scalar" | "simd";
+
+/**
  * Configuration options for initialising a simulation.
  *
  * @property agents - Total number of agents to simulate (must be ≥ 1).
@@ -14,6 +23,7 @@
  * @property width - Canvas / world width in pixels. Defaults to 600 if no canvas is provided.
  * @property height - Canvas / world height in pixels. Defaults to 600 if no canvas is provided.
  * @property seed - Optional seed for deterministic agent placement via a seeded PRNG.
+ * @property wasmExecutionMode - Controls scalar vs SIMD execution for the WebAssembly backend.
  */
 export type SimulationOptions = {
   agents: number;
@@ -21,6 +31,7 @@ export type SimulationOptions = {
   width?: number;
   height?: number;
   seed?: number;
+  wasmExecutionMode?: WasmExecutionMode;
 };
 
 /**
@@ -233,6 +244,11 @@ export type SimulationSource =
  * @property captureLogs - Whether to intercept and store logger output.
  * @property captureDeviceMetrics - Whether to collect runtime device/browser/GPU metrics.
  * @property captureRawArrays - Whether to preserve full typed arrays (trailMap, randomValues) in input snapshots instead of replacing them with `{type, length}` descriptors.
+ * @property captureRuntimeSamples - Whether to collect periodic runtime samples during execution.
+ * @property captureJsHeapSamples - Whether to include JS heap snapshots in runtime samples when supported.
+ * @property captureBatteryStatus - Whether to sample `navigator.getBattery()` state when available.
+ * @property captureThermalCanary - Whether to include event-loop drift samples as a thermal/load proxy.
+ * @property runtimeSampleIntervalMs - Interval (ms) for periodic runtime sampling.
  */
 export type TrackingOptions = {
   enabled: boolean;
@@ -241,6 +257,11 @@ export type TrackingOptions = {
   captureLogs: boolean;
   captureDeviceMetrics: boolean;
   captureRawArrays: boolean;
+  captureRuntimeSamples: boolean;
+  captureJsHeapSamples: boolean;
+  captureBatteryStatus: boolean;
+  captureThermalCanary: boolean;
+  runtimeSampleIntervalMs: number;
 };
 
 /**

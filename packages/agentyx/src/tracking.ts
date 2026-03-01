@@ -69,6 +69,7 @@ export type SimulationFrameRecord = {
   timestamp: number;
   method: Method;
   renderMode: RenderMode;
+  inputKeyCount: number;
   agentPositions?: Agent[];
   inputSnapshot?: Record<string, unknown>;
   performance?: FramePerformance;
@@ -93,6 +94,133 @@ export type MethodSummary = {
   avgRenderTime: number;
   avgReadbackTime: number;
   avgTotalTime: number;
+  avgCompileTime: number;
+  compileEvents: number;
+};
+
+/**
+ * Per-method and per-render-mode aggregate timing breakdown.
+ */
+export type MethodRenderSummary = {
+  method: string;
+  renderMode: RenderMode;
+  frameCount: number;
+  avgSetupTime: number;
+  avgComputeTime: number;
+  avgRenderTime: number;
+  avgReadbackTime: number;
+  avgTotalTime: number;
+  avgHostToGpuBridgeTime: number;
+  avgGpuToHostBridgeTime: number;
+  avgMethodMemoryFootprintBytes: number;
+};
+
+/**
+ * Distribution statistics for numeric measurements.
+ */
+export type NumericDistributionStats = {
+  min: number;
+  max: number;
+  average: number;
+  stdDev: number;
+  p50: number;
+  p95: number;
+  p99: number;
+};
+
+/**
+ * Input key-count statistics aggregated across frames.
+ */
+export type InputKeyStats = {
+  requiredInputCount: number;
+  definedInputCount: number;
+  minKeysPerFrame: number;
+  maxKeysPerFrame: number;
+  averageKeysPerFrame: number;
+};
+
+/**
+ * Agent count statistics aggregated across frames.
+ */
+export type AgentCountStats = {
+  minAgentsPerFrame: number;
+  maxAgentsPerFrame: number;
+  averageAgentsPerFrame: number;
+};
+
+/**
+ * Summary of runtime JS heap sampling.
+ */
+export type JsHeapSummary = {
+  sampleCount: number;
+  startBytes: number;
+  endBytes: number;
+  deltaBytes: number;
+  minBytes: number;
+  maxBytes: number;
+  averageBytes: number;
+};
+
+/**
+ * Summary of runtime battery sampling.
+ */
+export type BatterySummary = {
+  supported: boolean;
+  sampleCount: number;
+  startLevel?: number;
+  endLevel?: number;
+  deltaLevel?: number;
+  startCharging?: boolean;
+  endCharging?: boolean;
+};
+
+/**
+ * Event-loop drift summary used as a thermal/load canary.
+ */
+export type ThermalCanarySummary = {
+  sampleCount: number;
+  sampleIntervalMs: number;
+  avgDriftMs: number;
+  p95DriftMs: number;
+  maxDriftMs: number;
+  throttlingEvents: number;
+  throttlingEventThresholdMs: number;
+};
+
+/**
+ * Aggregated runtime sampling summaries.
+ */
+export type RuntimeSamplingSummary = {
+  jsHeap?: JsHeapSummary;
+  battery?: BatterySummary;
+  thermalCanary?: ThermalCanarySummary;
+};
+
+/**
+ * A single periodic runtime sample.
+ */
+export type RuntimeSampleRecord = {
+  timestamp: number;
+  elapsedMs: number;
+  frameNumber: number;
+  jsHeap?: {
+    jsHeapSizeLimit: number;
+    totalJSHeapSize: number;
+    usedJSHeapSize: number;
+  };
+  battery?: {
+    supported: boolean;
+    level?: number;
+    charging?: boolean;
+    chargingTime?: number;
+    dischargingTime?: number;
+  };
+  thermalCanary?: {
+    intervalMs: number;
+    expectedTimestampMs: number;
+    actualTimestampMs: number;
+    driftMs: number;
+  };
 };
 
 /**
@@ -112,6 +240,11 @@ export type SimulationRunSummary = {
   averageExecutionMs: number;
   errorCount: number;
   methodSummaries: MethodSummary[];
+  methodRenderSummaries: MethodRenderSummary[];
+  frameTimeStats: NumericDistributionStats;
+  inputStats: InputKeyStats;
+  agentStats: AgentCountStats;
+  runtimeSampling?: RuntimeSamplingSummary;
 };
 
 /**
@@ -136,6 +269,10 @@ export type SimulationRunMetadata = {
     options: SimulationOptions;
     requiredInputs: string[];
     definedInputs: CompilationResult["definedInputs"];
+    wasmCodeFeatures?: {
+      simdInstructionsPresent: boolean;
+      threadsInstructionsPresent: boolean;
+    };
   };
   metadata?: Record<string, unknown>;
 };
@@ -150,6 +287,7 @@ export type SimulationRunMetadata = {
 export type SimulationTrackingReport = {
   run: SimulationRunMetadata;
   environment?: RuntimeMetrics;
+  runtimeSamples: RuntimeSampleRecord[];
   frames: SimulationFrameRecord[];
   logs: SimulationLogEntry[];
   errors: SimulationErrorEntry[];
@@ -181,7 +319,19 @@ const DEFAULT_TRACKING_OPTIONS: TrackingOptions = {
   captureLogs: true,
   captureDeviceMetrics: true,
   captureRawArrays: false,
+  captureRuntimeSamples: false,
+  captureJsHeapSamples: true,
+  captureBatteryStatus: false,
+  captureThermalCanary: false,
+  runtimeSampleIntervalMs: 1000,
 };
+
+/** @internal Minimum allowed runtime sample interval. */
+const MIN_RUNTIME_SAMPLE_INTERVAL_MS = 100;
+/** @internal Maximum allowed runtime sample interval. */
+const MAX_RUNTIME_SAMPLE_INTERVAL_MS = 60_000;
+/** @internal Canary drift threshold used to count potential throttling events. */
+const DEFAULT_THROTTLING_THRESHOLD_MS = 120;
 
 /**
  * Map the internal {@link LogLevel} enum to a human-readable severity string.
@@ -307,6 +457,104 @@ const sanitizeInputValue = (value: unknown, keepArrays = false): unknown => {
   return String(value);
 };
 
+const sanitizeInputSnapshotEntry = (
+  key: string,
+  value: unknown,
+  keepArrays: boolean,
+): unknown => {
+  // Avoid blowing up benchmark reports with full per-frame agent snapshots.
+  if (key === "agents" && Array.isArray(value) && !keepArrays) {
+    return {
+      type: "AgentArray",
+      length: value.length,
+    };
+  }
+
+  return sanitizeInputValue(value, keepArrays);
+};
+
+const detectWasmCodeFeatures = (
+  compilationResult: CompilationResult,
+): {
+  simdInstructionsPresent: boolean;
+  threadsInstructionsPresent: boolean;
+} => {
+  const wat = compilationResult.WASMCode ?? "";
+  const simdInstructionsPresent = /\bv128\b|\bi(8|16|32|64)x(8|16|4|2)\b/.test(
+    wat,
+  );
+  const threadsInstructionsPresent =
+    /\batomic\./.test(wat) || /\bmemory\.atomic\./.test(wat);
+
+  return {
+    simdInstructionsPresent,
+    threadsInstructionsPresent,
+  };
+};
+
+const clampSampleInterval = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_TRACKING_OPTIONS.runtimeSampleIntervalMs;
+  }
+
+  return Math.min(
+    MAX_RUNTIME_SAMPLE_INTERVAL_MS,
+    Math.max(MIN_RUNTIME_SAMPLE_INTERVAL_MS, Math.round(value)),
+  );
+};
+
+const percentile = (values: number[], p: number): number => {
+  if (values.length === 0) return 0;
+  if (values.length === 1) return values[0];
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = (sorted.length - 1) * p;
+  const lower = Math.floor(idx);
+  const upper = Math.ceil(idx);
+
+  if (lower === upper) return sorted[lower];
+  const weight = idx - lower;
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+};
+
+const distribution = (values: number[]): NumericDistributionStats => {
+  if (values.length === 0) {
+    return {
+      min: 0,
+      max: 0,
+      average: 0,
+      stdDev: 0,
+      p50: 0,
+      p95: 0,
+      p99: 0,
+    };
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance =
+    values.reduce((sum, value) => sum + (value - average) ** 2, 0) /
+    values.length;
+
+  return {
+    min,
+    max,
+    average,
+    stdDev: Math.sqrt(variance),
+    p50: percentile(values, 0.5),
+    p95: percentile(values, 0.95),
+    p99: percentile(values, 0.99),
+  };
+};
+
+type BatteryManagerLike = {
+  level: number;
+  charging: boolean;
+  chargingTime: number;
+  dischargingTime: number;
+};
+
 /**
  * Records telemetry data throughout a simulation run and produces
  * structured tracking reports.
@@ -322,7 +570,15 @@ export class SimulationTracker {
   private readonly frames: SimulationFrameRecord[] = [];
   private readonly logs: SimulationLogEntry[] = [];
   private readonly errors: SimulationErrorEntry[] = [];
+  private readonly runtimeSamples: RuntimeSampleRecord[] = [];
   private environment?: RuntimeMetrics;
+  private environmentMetricsPromise?: Promise<void>;
+  private latestFrameNumber = -1;
+  private runtimeSampleIntervalMs: number;
+  private finalized = false;
+  private runtimeSampler?: ReturnType<typeof setInterval>;
+  private canaryExpectedTimestampMs?: number;
+  private batteryManagerPromise?: Promise<BatteryManagerLike | null>;
   private readonly logListener?: (
     level: LogLevel,
     context: string,
@@ -343,6 +599,9 @@ export class SimulationTracker {
     metadata?: Record<string, unknown>;
   }) {
     this.options = { ...DEFAULT_TRACKING_OPTIONS, ...(params.tracking ?? {}) };
+    this.runtimeSampleIntervalMs = clampSampleInterval(
+      this.options.runtimeSampleIntervalMs,
+    );
 
     this.run = {
       runId: generateRunId(),
@@ -367,6 +626,7 @@ export class SimulationTracker {
         definedInputs: params.compilationResult.definedInputs.map((def) => ({
           ...def,
         })),
+        wasmCodeFeatures: detectWasmCodeFeatures(params.compilationResult),
       },
       metadata: params.metadata,
     };
@@ -385,6 +645,8 @@ export class SimulationTracker {
 
       Logger.addListener(this.logListener);
     }
+
+    this.startRuntimeSampling();
   }
 
   /**
@@ -397,12 +659,137 @@ export class SimulationTracker {
       return;
     }
 
-    try {
-      this.environment = await collectRuntimeMetrics();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Failed to collect runtime metrics: ${message}`);
+    if (!this.environmentMetricsPromise) {
+      this.environmentMetricsPromise = (async () => {
+        try {
+          this.environment = await collectRuntimeMetrics();
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.logger.warn(`Failed to collect runtime metrics: ${message}`);
+        }
+      })();
     }
+
+    await this.environmentMetricsPromise;
+  }
+
+  private startRuntimeSampling(): void {
+    if (!this.options.enabled || !this.options.captureRuntimeSamples) {
+      return;
+    }
+
+    if (this.runtimeSampler) {
+      clearInterval(this.runtimeSampler);
+    }
+
+    this.canaryExpectedTimestampMs =
+      performance.now() + this.runtimeSampleIntervalMs;
+
+    this.runtimeSampler = setInterval(() => {
+      void this.captureRuntimeSample();
+    }, this.runtimeSampleIntervalMs);
+
+    void this.captureRuntimeSample();
+  }
+
+  private stopRuntimeSampling(): void {
+    if (this.runtimeSampler) {
+      clearInterval(this.runtimeSampler);
+      this.runtimeSampler = undefined;
+    }
+  }
+
+  private getBatteryManager(): Promise<BatteryManagerLike | null> {
+    if (this.batteryManagerPromise) {
+      return this.batteryManagerPromise;
+    }
+
+    this.batteryManagerPromise = (async () => {
+      if (typeof navigator === "undefined") return null;
+
+      const nav = navigator as Navigator & {
+        getBattery?: () => Promise<BatteryManagerLike>;
+      };
+
+      if (typeof nav.getBattery !== "function") {
+        return null;
+      }
+
+      try {
+        return await nav.getBattery();
+      } catch {
+        return null;
+      }
+    })();
+
+    return this.batteryManagerPromise;
+  }
+
+  private async captureRuntimeSample(): Promise<void> {
+    if (!this.options.enabled || !this.options.captureRuntimeSamples) {
+      return;
+    }
+
+    const nowDate = Date.now();
+    const sample: RuntimeSampleRecord = {
+      timestamp: nowDate,
+      elapsedMs: Math.max(0, nowDate - this.run.startedAt),
+      frameNumber: this.latestFrameNumber,
+    };
+
+    if (
+      this.options.captureJsHeapSamples &&
+      typeof performance !== "undefined"
+    ) {
+      const perf = performance as Performance & {
+        memory?: {
+          jsHeapSizeLimit: number;
+          totalJSHeapSize: number;
+          usedJSHeapSize: number;
+        };
+      };
+      if (perf.memory) {
+        sample.jsHeap = {
+          jsHeapSizeLimit: perf.memory.jsHeapSizeLimit,
+          totalJSHeapSize: perf.memory.totalJSHeapSize,
+          usedJSHeapSize: perf.memory.usedJSHeapSize,
+        };
+      }
+    }
+
+    if (this.options.captureBatteryStatus) {
+      const batteryManager = await this.getBatteryManager();
+      sample.battery = batteryManager
+        ? {
+            supported: true,
+            level: batteryManager.level,
+            charging: batteryManager.charging,
+            chargingTime: batteryManager.chargingTime,
+            dischargingTime: batteryManager.dischargingTime,
+          }
+        : { supported: false };
+    }
+
+    if (this.options.captureThermalCanary) {
+      const actualTimestampMs = performance.now();
+      const expectedTimestampMs =
+        this.canaryExpectedTimestampMs ??
+        actualTimestampMs + this.runtimeSampleIntervalMs;
+      const driftMs = actualTimestampMs - expectedTimestampMs;
+
+      sample.thermalCanary = {
+        intervalMs: this.runtimeSampleIntervalMs,
+        expectedTimestampMs,
+        actualTimestampMs,
+        driftMs,
+      };
+
+      this.canaryExpectedTimestampMs =
+        expectedTimestampMs + this.runtimeSampleIntervalMs;
+    }
+
+    this.runtimeSamples.push(sample);
   }
 
   /**
@@ -422,11 +809,14 @@ export class SimulationTracker {
       return;
     }
 
+    this.latestFrameNumber = params.frameNumber;
+
     this.frames.push({
       frameNumber: params.frameNumber,
       timestamp: Date.now(),
       method: params.method,
       renderMode: params.renderMode,
+      inputKeyCount: Object.keys(params.inputs ?? {}).length,
       agentPositions: this.options.captureAgentStates
         ? cloneAgents(params.agents)
         : undefined,
@@ -434,7 +824,11 @@ export class SimulationTracker {
         ? Object.fromEntries(
             Object.entries(params.inputs ?? {}).map(([key, value]) => [
               key,
-              sanitizeInputValue(value, this.options.captureRawArrays),
+              sanitizeInputSnapshotEntry(
+                key,
+                value,
+                this.options.captureRawArrays,
+              ),
             ]),
           )
         : undefined,
@@ -471,11 +865,35 @@ export class SimulationTracker {
    * Mark the simulation run as complete by recording the end timestamp.
    */
   public complete(): void {
+    void this.finalize();
+  }
+
+  /**
+   * Finalize tracking state and await pending async metric collection.
+   *
+   * This is useful for benchmark orchestration code that needs a stable
+   * report snapshot (ended timestamp + final runtime sample + environment).
+   */
+  public async finalize(): Promise<void> {
     if (!this.options.enabled) {
       return;
     }
 
+    if (this.finalized) {
+      return;
+    }
+
+    this.finalized = true;
+    this.stopRuntimeSampling();
     this.run.endedAt = Date.now();
+
+    if (this.options.captureRuntimeSamples) {
+      await this.captureRuntimeSample();
+    }
+
+    if (this.environmentMetricsPromise) {
+      await this.environmentMetricsPromise;
+    }
   }
 
   /**
@@ -496,6 +914,24 @@ export class SimulationTracker {
         return false;
       }
       if (typeof toFrame === "number" && frame.frameNumber > toFrame) {
+        return false;
+      }
+      return true;
+    });
+
+    const filteredRuntimeSamples = this.runtimeSamples.filter((sample) => {
+      if (
+        typeof fromFrame === "number" &&
+        sample.frameNumber >= 0 &&
+        sample.frameNumber < fromFrame
+      ) {
+        return false;
+      }
+      if (
+        typeof toFrame === "number" &&
+        sample.frameNumber >= 0 &&
+        sample.frameNumber > toFrame
+      ) {
         return false;
       }
       return true;
@@ -523,6 +959,29 @@ export class SimulationTracker {
       0,
     );
 
+    const inputCounts = filteredFrames.map((frame) => frame.inputKeyCount ?? 0);
+    const inputTotal = inputCounts.reduce((total, count) => total + count, 0);
+    const inputStats: InputKeyStats = {
+      requiredInputCount: this.run.configuration.requiredInputs.length,
+      definedInputCount: this.run.configuration.definedInputs.length,
+      minKeysPerFrame: inputCounts.length > 0 ? Math.min(...inputCounts) : 0,
+      maxKeysPerFrame: inputCounts.length > 0 ? Math.max(...inputCounts) : 0,
+      averageKeysPerFrame:
+        inputCounts.length > 0 ? inputTotal / inputCounts.length : 0,
+    };
+
+    const agentCounts = filteredFrames.map(
+      (frame) =>
+        frame.performance?.agentCount ?? frame.agentPositions?.length ?? 0,
+    );
+    const agentTotal = agentCounts.reduce((total, count) => total + count, 0);
+    const agentStats: AgentCountStats = {
+      minAgentsPerFrame: agentCounts.length > 0 ? Math.min(...agentCounts) : 0,
+      maxAgentsPerFrame: agentCounts.length > 0 ? Math.max(...agentCounts) : 0,
+      averageAgentsPerFrame:
+        agentCounts.length > 0 ? agentTotal / agentCounts.length : 0,
+    };
+
     // Build per-method summaries
     const methodGroups = new Map<
       string,
@@ -532,9 +991,29 @@ export class SimulationTracker {
         render: number;
         readback: number;
         total: number;
+        compile: number;
+        compileEvents: number;
         count: number;
       }
     >();
+    const methodRenderGroups = new Map<
+      string,
+      {
+        method: Method;
+        renderMode: RenderMode;
+        setup: number;
+        compute: number;
+        render: number;
+        readback: number;
+        total: number;
+        hostToGpu: number;
+        gpuToHost: number;
+        memory: number;
+        memoryCount: number;
+        count: number;
+      }
+    >();
+
     for (const frame of filteredFrames) {
       const perf = frame.performance;
       if (!perf) continue;
@@ -546,6 +1025,8 @@ export class SimulationTracker {
           render: 0,
           readback: 0,
           total: 0,
+          compile: 0,
+          compileEvents: 0,
           count: 0,
         };
         methodGroups.set(frame.method, group);
@@ -555,7 +1036,44 @@ export class SimulationTracker {
       group.render += perf.renderTime ?? 0;
       group.readback += perf.readbackTime ?? 0;
       group.total += perf.totalExecutionTime;
+      if (typeof perf.compileTime === "number") {
+        group.compile += perf.compileTime;
+        group.compileEvents += 1;
+      }
       group.count += 1;
+
+      const renderGroupKey = `${frame.method}::${frame.renderMode}`;
+      let renderGroup = methodRenderGroups.get(renderGroupKey);
+      if (!renderGroup) {
+        renderGroup = {
+          method: frame.method,
+          renderMode: frame.renderMode,
+          setup: 0,
+          compute: 0,
+          render: 0,
+          readback: 0,
+          total: 0,
+          hostToGpu: 0,
+          gpuToHost: 0,
+          memory: 0,
+          memoryCount: 0,
+          count: 0,
+        };
+        methodRenderGroups.set(renderGroupKey, renderGroup);
+      }
+      renderGroup.setup += perf.setupTime ?? 0;
+      renderGroup.compute += perf.computeTime ?? 0;
+      renderGroup.render += perf.renderTime ?? 0;
+      renderGroup.readback += perf.readbackTime ?? 0;
+      renderGroup.total += perf.totalExecutionTime;
+      renderGroup.hostToGpu += perf.bridgeTimings?.hostToGpuTime ?? 0;
+      renderGroup.gpuToHost += perf.bridgeTimings?.gpuToHostTime ?? 0;
+
+      if (typeof perf.memoryStats?.methodMemoryFootprintBytes === "number") {
+        renderGroup.memory += perf.memoryStats.methodMemoryFootprintBytes;
+        renderGroup.memoryCount += 1;
+      }
+      renderGroup.count += 1;
     }
 
     const methodSummaries: MethodSummary[] = [];
@@ -568,8 +1086,39 @@ export class SimulationTracker {
         avgRenderTime: g.count > 0 ? g.render / g.count : 0,
         avgReadbackTime: g.count > 0 ? g.readback / g.count : 0,
         avgTotalTime: g.count > 0 ? g.total / g.count : 0,
+        avgCompileTime: g.compileEvents > 0 ? g.compile / g.compileEvents : 0,
+        compileEvents: g.compileEvents,
       });
     }
+
+    const methodRenderSummaries: MethodRenderSummary[] = [];
+    for (const [, g] of methodRenderGroups) {
+      methodRenderSummaries.push({
+        method: g.method,
+        renderMode: g.renderMode,
+        frameCount: g.count,
+        avgSetupTime: g.count > 0 ? g.setup / g.count : 0,
+        avgComputeTime: g.count > 0 ? g.compute / g.count : 0,
+        avgRenderTime: g.count > 0 ? g.render / g.count : 0,
+        avgReadbackTime: g.count > 0 ? g.readback / g.count : 0,
+        avgTotalTime: g.count > 0 ? g.total / g.count : 0,
+        avgHostToGpuBridgeTime: g.count > 0 ? g.hostToGpu / g.count : 0,
+        avgGpuToHostBridgeTime: g.count > 0 ? g.gpuToHost / g.count : 0,
+        avgMethodMemoryFootprintBytes:
+          g.memoryCount > 0 ? g.memory / g.memoryCount : 0,
+      });
+    }
+
+    const frameTimeStats = distribution(
+      filteredFrames
+        .map((frame) => frame.performance?.totalExecutionTime ?? 0)
+        .filter((value) => Number.isFinite(value)),
+    );
+
+    const runtimeSampling = this.buildRuntimeSamplingSummary(
+      filteredRuntimeSamples,
+      filteredFrames,
+    );
 
     return {
       run: {
@@ -580,6 +1129,9 @@ export class SimulationTracker {
           definedInputs: this.run.configuration.definedInputs.map((input) => ({
             ...input,
           })),
+          wasmCodeFeatures: this.run.configuration.wasmCodeFeatures
+            ? { ...this.run.configuration.wasmCodeFeatures }
+            : undefined,
         },
         metadata: this.run.metadata ? { ...this.run.metadata } : undefined,
       },
@@ -588,8 +1140,20 @@ export class SimulationTracker {
             device: { ...this.environment.device },
             browser: { ...this.environment.browser },
             gpu: this.environment.gpu ? { ...this.environment.gpu } : undefined,
+            wasm: { ...this.environment.wasm },
+            battery: this.environment.battery
+              ? { ...this.environment.battery }
+              : undefined,
           }
         : undefined,
+      runtimeSamples: filteredRuntimeSamples.map((sample) => ({
+        ...sample,
+        jsHeap: sample.jsHeap ? { ...sample.jsHeap } : undefined,
+        battery: sample.battery ? { ...sample.battery } : undefined,
+        thermalCanary: sample.thermalCanary
+          ? { ...sample.thermalCanary }
+          : undefined,
+      })),
       frames: frameView,
       logs:
         filter?.includeLogs === false
@@ -606,8 +1170,103 @@ export class SimulationTracker {
             : 0,
         errorCount: this.errors.length,
         methodSummaries,
+        methodRenderSummaries,
+        frameTimeStats,
+        inputStats,
+        agentStats,
+        runtimeSampling,
       },
     };
+  }
+
+  private buildRuntimeSamplingSummary(
+    samples: RuntimeSampleRecord[],
+    frames: SimulationFrameRecord[],
+  ): RuntimeSamplingSummary | undefined {
+    const jsHeapSamples = samples
+      .map((sample) => sample.jsHeap?.usedJSHeapSize)
+      .filter((value): value is number => typeof value === "number");
+
+    // Fallback: use per-frame heap samples if periodic sampling is disabled.
+    if (jsHeapSamples.length === 0) {
+      for (const frame of frames) {
+        const used = frame.performance?.memoryStats?.usedJsHeapSizeBytes;
+        if (typeof used === "number") {
+          jsHeapSamples.push(used);
+        }
+      }
+    }
+
+    const runtimeSampling: RuntimeSamplingSummary = {};
+
+    if (jsHeapSamples.length > 0) {
+      const total = jsHeapSamples.reduce((sum, value) => sum + value, 0);
+      runtimeSampling.jsHeap = {
+        sampleCount: jsHeapSamples.length,
+        startBytes: jsHeapSamples[0],
+        endBytes: jsHeapSamples[jsHeapSamples.length - 1],
+        deltaBytes: jsHeapSamples[jsHeapSamples.length - 1] - jsHeapSamples[0],
+        minBytes: Math.min(...jsHeapSamples),
+        maxBytes: Math.max(...jsHeapSamples),
+        averageBytes: total / jsHeapSamples.length,
+      };
+    }
+
+    const batterySamples = samples
+      .map((sample) => sample.battery)
+      .filter(
+        (battery): battery is NonNullable<RuntimeSampleRecord["battery"]> =>
+          Boolean(battery),
+      );
+
+    if (batterySamples.length > 0) {
+      const levelSamples = batterySamples
+        .map((battery) => battery.level)
+        .filter((level): level is number => typeof level === "number");
+
+      runtimeSampling.battery = {
+        supported: batterySamples.some((battery) => battery.supported),
+        sampleCount: batterySamples.length,
+        startLevel: levelSamples.length > 0 ? levelSamples[0] : undefined,
+        endLevel:
+          levelSamples.length > 0
+            ? levelSamples[levelSamples.length - 1]
+            : undefined,
+        deltaLevel:
+          levelSamples.length > 1
+            ? levelSamples[levelSamples.length - 1] - levelSamples[0]
+            : undefined,
+        startCharging: batterySamples[0]?.charging,
+        endCharging: batterySamples[batterySamples.length - 1]?.charging,
+      };
+    }
+
+    const canaryDrifts = samples
+      .map((sample) => sample.thermalCanary?.driftMs)
+      .filter((value): value is number => typeof value === "number");
+
+    if (canaryDrifts.length > 0) {
+      const stats = distribution(canaryDrifts);
+      const threshold = Math.max(
+        DEFAULT_THROTTLING_THRESHOLD_MS,
+        this.runtimeSampleIntervalMs * 0.75,
+      );
+
+      runtimeSampling.thermalCanary = {
+        sampleCount: canaryDrifts.length,
+        sampleIntervalMs: this.runtimeSampleIntervalMs,
+        avgDriftMs: stats.average,
+        p95DriftMs: stats.p95,
+        maxDriftMs: stats.max,
+        throttlingEvents: canaryDrifts.filter((value) => value > threshold)
+          .length,
+        throttlingEventThresholdMs: threshold,
+      };
+    }
+
+    return Object.keys(runtimeSampling).length > 0
+      ? runtimeSampling
+      : undefined;
   }
 
   /**
@@ -616,6 +1275,7 @@ export class SimulationTracker {
    * Should be called during simulation teardown to prevent memory leaks.
    */
   public dispose(): void {
+    this.stopRuntimeSampling();
     if (this.logListener) {
       Logger.removeListener(this.logListener);
     }

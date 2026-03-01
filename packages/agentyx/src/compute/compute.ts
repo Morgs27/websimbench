@@ -9,13 +9,18 @@
  */
 
 import Logger from "../helpers/logger";
-import type { PerformanceMonitor } from "../performance";
+import type {
+  BridgeTimingBreakdown,
+  FrameMemoryStats,
+  PerformanceMonitor,
+} from "../performance";
 import type {
   CompilationResult,
   Method,
   InputValues,
   Agent,
   RenderMode,
+  WasmExecutionMode,
 } from "../types";
 import WebWorkers from "./webWorkers";
 import type { WebGPURenderResources } from "./webGPU";
@@ -46,6 +51,8 @@ type MethodPerformanceDetails = {
   computeTime: number;
   readbackTime: number;
   specificStats: Record<string, number>;
+  bridgeTimings?: BridgeTimingBreakdown;
+  memoryStats?: FrameMemoryStats;
 };
 
 /**
@@ -60,6 +67,7 @@ export class ComputeEngine {
   private agentFunction: AgentFunction;
   private agentCount: number = 0;
   private workerCount?: number;
+  private readonly wasmExecutionMode: WasmExecutionMode;
   private readonly logger: Logger;
 
   private gpuDevice: GPUDevice | null = null;
@@ -78,12 +86,16 @@ export class ComputeEngine {
     performanceMonitor: PerformanceMonitor,
     agentCount: number,
     workerCount?: number,
+    wasmExecutionMode: WasmExecutionMode = "auto",
   ) {
     this.compilationResult = compilationResult;
     this.PerformanceMonitor = performanceMonitor;
     this.workerCount = workerCount;
+    this.wasmExecutionMode = wasmExecutionMode;
 
+    const jsCompileStart = performance.now();
     this.agentFunction = this.buildAgentFunction();
+    this.compileTimes["JavaScript"] = performance.now() - jsCompileStart;
 
     this.agentCount = agentCount;
     this.logger = new Logger("ComputeEngine", "purple");
@@ -264,6 +276,7 @@ export class ComputeEngine {
       this._WebAssembly = new WebAssemblyCompute(
         this.compilationResult.WASMCode,
         this.agentCount,
+        { executionMode: this.wasmExecutionMode },
       );
       this._WebAssemblyInitPromise = this._WebAssembly.init();
       await this._WebAssemblyInitPromise;
@@ -354,6 +367,8 @@ export class ComputeEngine {
       agents,
       inputs,
     );
+    const wasmExecInfo = instance.getExecutionInfo();
+    const memoryFootprint = instance.getMemoryFootprintBytes();
 
     this.logPerformance("WebAssembly", updatedAgents.length, {
       setupTime: wasmPerf.writeTime,
@@ -363,6 +378,20 @@ export class ComputeEngine {
         "Memory Write": wasmPerf.writeTime,
         "WASM Execution": wasmPerf.computeTime,
         "Memory Read": wasmPerf.readTime,
+        "WASM SIMD Memcpy": wasmPerf.simdMemcpyTime,
+        "WASM SIMD Requested":
+          wasmExecInfo.requestedMode === "simd"
+            ? 1
+            : wasmExecInfo.requestedMode === "auto"
+              ? 0.5
+              : 0,
+        "WASM SIMD Active": wasmExecInfo.effectiveMode === "simd" ? 1 : 0,
+        "WASM SIMD Supported": wasmExecInfo.simdSupported ? 1 : 0,
+        "Linear Memory (bytes)": memoryFootprint,
+      },
+      memoryStats: {
+        methodMemoryFootprintBytes: memoryFootprint,
+        methodMemoryFootprintType: "exact",
       },
     });
 
@@ -383,6 +412,7 @@ export class ComputeEngine {
 
     const { updatedAgents, renderResources, performance: gpuPerf } = result;
     const nextAgents = updatedAgents ?? agents;
+    const gpuMemory = instance.getMemoryFootprintBytes();
 
     this.logPerformance("WebGPU", nextAgents.length, {
       setupTime: gpuPerf.setupTime,
@@ -392,6 +422,28 @@ export class ComputeEngine {
         "Buffer Setup": gpuPerf.setupTime,
         "GPU Dispatch": gpuPerf.dispatchTime,
         Readback: gpuPerf.readbackTime,
+        "Host->GPU": gpuPerf.hostToGpuTime,
+        "GPU->Host": gpuPerf.gpuToHostTime,
+        "Queue Submit": gpuPerf.queueSubmitTime,
+        "GPU Memory (bytes)": gpuMemory.totalBytes,
+      },
+      bridgeTimings: {
+        hostToGpuTime: gpuPerf.hostToGpuTime,
+        hostToGpuAgentUploadTime: gpuPerf.hostToGpuAgentUploadTime,
+        hostToGpuInputUploadTime: gpuPerf.hostToGpuInputUploadTime,
+        hostToGpuUniformUploadTime: gpuPerf.hostToGpuUniformUploadTime,
+        hostToGpuTrailUploadTime: gpuPerf.hostToGpuTrailUploadTime,
+        hostToGpuRandomUploadTime: gpuPerf.hostToGpuRandomUploadTime,
+        hostToGpuObstacleUploadTime: gpuPerf.hostToGpuObstacleUploadTime,
+        gpuToHostTime: gpuPerf.gpuToHostTime,
+        gpuToHostAgentReadbackTime: gpuPerf.gpuToHostAgentReadbackTime,
+        gpuToHostTrailReadbackTime: gpuPerf.gpuToHostTrailReadbackTime,
+        gpuToHostLogReadbackTime: gpuPerf.gpuToHostLogReadbackTime,
+        queueSubmitTime: gpuPerf.queueSubmitTime,
+      },
+      memoryStats: {
+        methodMemoryFootprintBytes: gpuMemory.totalBytes,
+        methodMemoryFootprintType: "exact",
       },
     });
 
@@ -421,6 +473,12 @@ export class ComputeEngine {
       }
     }
 
+    const memoryEstimate = instance.estimateMemoryFootprintBytes(
+      updatedAgents.length,
+      inputs,
+    );
+    const workers = instance.getWorkerCount();
+
     this.logPerformance("WebWorkers", updatedAgents.length, {
       setupTime: workerPerf.serializationTime,
       computeTime: workerPerf.workerTime,
@@ -429,6 +487,12 @@ export class ComputeEngine {
         Serialization: workerPerf.serializationTime,
         "Worker Compute": workerPerf.workerTime,
         Deserialization: workerPerf.deserializationTime,
+        Workers: workers,
+        "Estimated Transfer Footprint (bytes)": memoryEstimate,
+      },
+      memoryStats: {
+        methodMemoryFootprintBytes: memoryEstimate,
+        methodMemoryFootprintType: "estimate",
       },
     });
 
@@ -446,6 +510,10 @@ export class ComputeEngine {
     const computeEnd = performance.now();
 
     const computeTime = computeEnd - computeStart;
+    const memoryEstimate = this.estimateMainThreadMemoryBytes(
+      updatedAgents.length,
+      inputs,
+    );
 
     this.logPerformance("JavaScript", updatedAgents.length, {
       setupTime: 0,
@@ -453,10 +521,37 @@ export class ComputeEngine {
       readbackTime: 0,
       specificStats: {
         "JS Execution": computeTime,
+        "Estimated State Footprint (bytes)": memoryEstimate,
+      },
+      memoryStats: {
+        methodMemoryFootprintBytes: memoryEstimate,
+        methodMemoryFootprintType: "estimate",
       },
     });
 
     return updatedAgents;
+  }
+
+  private estimateMainThreadMemoryBytes(
+    agentCount: number,
+    inputs: InputValues,
+  ): number {
+    const agentsBytes = Math.max(0, Math.floor(agentCount)) * 6 * 8;
+    const trailBytes =
+      inputs.trailMapRead instanceof Float32Array
+        ? inputs.trailMapRead.byteLength
+        : inputs.trailMap instanceof Float32Array
+          ? inputs.trailMap.byteLength
+          : 0;
+    const randomBytes =
+      inputs.randomValues instanceof Float32Array
+        ? inputs.randomValues.byteLength
+        : 0;
+    const obstacleBytes = Array.isArray(inputs.obstacles)
+      ? inputs.obstacles.length * 4 * 8
+      : 0;
+
+    return agentsBytes + trailBytes + randomBytes + obstacleBytes;
   }
 
   private logPerformance(
@@ -483,6 +578,8 @@ export class ComputeEngine {
       readbackTime: details.readbackTime,
       compileTime,
       specificStats: details.specificStats,
+      bridgeTimings: details.bridgeTimings,
+      memoryStats: details.memoryStats,
     });
   }
 

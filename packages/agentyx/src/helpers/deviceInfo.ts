@@ -89,12 +89,43 @@ export type RuntimeGPUMetrics = {
 };
 
 /**
+ * Runtime WebAssembly capability metrics.
+ */
+export type RuntimeWasmMetrics = {
+  simdSupported: boolean;
+  threadsSupported: boolean;
+  sharedArrayBufferAvailable: boolean;
+};
+
+/**
+ * Battery baseline metrics sampled at startup.
+ *
+ * `level` is in range [0, 1] when provided.
+ */
+export type RuntimeBatteryMetrics = {
+  supported: boolean;
+  level?: number;
+  charging?: boolean;
+  chargingTime?: number;
+  dischargingTime?: number;
+};
+
+/**
  * Combined runtime metrics covering device, browser, and GPU capabilities.
  */
 export type RuntimeMetrics = {
   device: RuntimeDeviceMetrics;
   browser: RuntimeBrowserMetrics;
   gpu?: RuntimeGPUMetrics;
+  wasm: RuntimeWasmMetrics;
+  battery?: RuntimeBatteryMetrics;
+};
+
+type BatteryManagerLike = {
+  level: number;
+  charging: boolean;
+  chargingTime: number;
+  dischargingTime: number;
 };
 
 /**
@@ -251,6 +282,79 @@ const collectGpuMetrics = async (): Promise<RuntimeGPUMetrics | undefined> => {
   }
 };
 
+const SIMD_WASM_PROBE = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00,
+  0x00, 0x03, 0x02, 0x01, 0x00, 0x0a, 0x17, 0x01, 0x15, 0x00, 0xfd, 0x0c, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x1a, 0x0b,
+]);
+
+const THREADS_WASM_PROBE = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x04, 0x01, 0x03, 0x01,
+  0x01,
+]);
+
+const supportsWasmFeature = (bytes: Uint8Array): boolean => {
+  if (typeof WebAssembly === "undefined") {
+    return false;
+  }
+
+  if (typeof WebAssembly.validate !== "function") {
+    return false;
+  }
+
+  try {
+    const probe = new Uint8Array(bytes.byteLength);
+    probe.set(bytes);
+    return WebAssembly.validate(probe);
+  } catch {
+    return false;
+  }
+};
+
+const collectWasmMetrics = (): RuntimeWasmMetrics => {
+  const sharedArrayBufferAvailable =
+    typeof SharedArrayBuffer !== "undefined" &&
+    typeof Atomics !== "undefined" &&
+    typeof Uint8Array !== "undefined";
+
+  return {
+    simdSupported: supportsWasmFeature(SIMD_WASM_PROBE),
+    threadsSupported:
+      sharedArrayBufferAvailable && supportsWasmFeature(THREADS_WASM_PROBE),
+    sharedArrayBufferAvailable,
+  };
+};
+
+const collectBatteryMetrics = async (): Promise<
+  RuntimeBatteryMetrics | undefined
+> => {
+  if (!isBrowserRuntime()) {
+    return undefined;
+  }
+
+  const navWithBattery = navigator as Navigator & {
+    getBattery?: () => Promise<BatteryManagerLike>;
+  };
+
+  if (typeof navWithBattery.getBattery !== "function") {
+    return { supported: false };
+  }
+
+  try {
+    const battery = await navWithBattery.getBattery();
+    return {
+      supported: true,
+      level: battery.level,
+      charging: battery.charging,
+      chargingTime: battery.chargingTime,
+      dischargingTime: battery.dischargingTime,
+    };
+  } catch {
+    return { supported: false };
+  }
+};
+
 /**
  * Collect comprehensive runtime metrics for the current environment.
  *
@@ -272,10 +376,16 @@ export const collectRuntimeMetrics = async (): Promise<RuntimeMetrics> => {
   const base = isBrowserRuntime()
     ? collectBrowserMetrics()
     : collectNodeMetrics();
-  const gpu = await collectGpuMetrics();
+  const [gpu, battery] = await Promise.all([
+    collectGpuMetrics(),
+    collectBatteryMetrics(),
+  ]);
+  const wasm = collectWasmMetrics();
 
   return {
     ...base,
     gpu,
+    wasm,
+    battery,
   };
 };

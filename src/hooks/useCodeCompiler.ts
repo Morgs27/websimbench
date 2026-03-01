@@ -5,6 +5,14 @@ import { useLocalStorageString } from "./useLocalStorage";
 
 const DEFAULT_CODE = "";
 
+/** Turn a human name like "Slime Mold" into a safe filename slug. */
+const slugify = (name: string): string =>
+  name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "simulation";
+
 /**
  * Hook bridging the frontend editor with the core Agentyx WebAssembly compiler pipeline.
  * Manages raw user code, triggers the compilation step on debounce, and handles any output errors.
@@ -16,6 +24,10 @@ export function useCodeCompiler() {
   const [code, setCode] = useLocalStorageString(
     "websimbench_code",
     DEFAULT_CODE,
+  );
+  const [simulationName, setSimulationName] = useLocalStorageString(
+    "websimbench_simName",
+    "Untitled Sim",
   );
   const [compiledCode, setCompiledCode] = useState<{
     js: string;
@@ -87,7 +99,7 @@ export function useCodeCompiler() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "simulation.js";
+    a.download = `${slugify(simulationName)}.js`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -95,6 +107,9 @@ export function useCodeCompiler() {
   const handleLoadCode = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Derive simulation name from filename
+    const nameFromFile = file.name.replace(/\.(js|ts|txt|sim)$/i, "");
+    if (nameFromFile) setSimulationName(nameFromFile);
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result as string;
@@ -107,6 +122,8 @@ export function useCodeCompiler() {
   return {
     code,
     setCode,
+    simulationName,
+    setSimulationName,
     compiledCode,
     inputs,
     definedInputs,

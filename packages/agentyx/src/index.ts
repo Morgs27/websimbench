@@ -37,6 +37,8 @@ export {
   type RuntimeDeviceMetrics,
   type RuntimeBrowserMetrics,
   type RuntimeGPUMetrics,
+  type RuntimeWasmMetrics,
+  type RuntimeBatteryMetrics,
 } from "./helpers/deviceInfo";
 export {
   SimulationTracker,
@@ -45,6 +47,12 @@ export {
   type SimulationRunMetadata,
   type SimulationRunSummary,
   type SimulationFrameRecord,
+  type RuntimeSampleRecord,
+  type RuntimeSamplingSummary,
+  type MethodRenderSummary,
+  type NumericDistributionStats,
+  type InputKeyStats,
+  type AgentCountStats,
   type SimulationLogEntry,
   type SimulationErrorEntry,
   type MethodSummary,
@@ -65,6 +73,7 @@ export type {
   SimulationOptions,
   SimulationSource,
   TrackingOptions,
+  WasmExecutionMode,
 } from "./types";
 
 export { default } from "./simulation";

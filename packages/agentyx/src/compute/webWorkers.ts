@@ -341,6 +341,47 @@ class WebWorkers {
     URL.revokeObjectURL(this.workerScriptUrl);
   }
 
+  /**
+   * Number of worker threads managed by this backend.
+   */
+  getWorkerCount(): number {
+    return this.workerCount;
+  }
+
+  /**
+   * Approximate per-frame worker memory/transfer footprint in bytes.
+   *
+   * This is an estimate based on structured-clone payload sizes and does not
+   * include browser-internal worker heap overhead.
+   */
+  estimateMemoryFootprintBytes(
+    agentCount: number,
+    inputValues: InputValues,
+  ): number {
+    const activeWorkers = Math.min(
+      this.workerCount,
+      Math.max(1, Math.floor(agentCount)),
+    );
+
+    const agentBytes = Math.max(0, Math.floor(agentCount)) * 6 * 4;
+    const trailMapBytes =
+      inputValues.trailMapRead instanceof Float32Array
+        ? inputValues.trailMapRead.byteLength
+        : 0;
+    const randomValuesBytes =
+      inputValues.randomValues instanceof Float32Array
+        ? inputValues.randomValues.byteLength
+        : 0;
+    const obstacleBytes = Array.isArray(inputValues.obstacles)
+      ? inputValues.obstacles.length * 4 * 4
+      : 0;
+
+    const duplicatedInputBytes =
+      trailMapBytes + randomValuesBytes + obstacleBytes;
+
+    return agentBytes + duplicatedInputBytes * activeWorkers;
+  }
+
   private sanitizeWorkerInputs(inputValues: InputValues): InputValues {
     const sanitized: InputValues = {};
 

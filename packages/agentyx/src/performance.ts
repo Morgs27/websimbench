@@ -9,6 +9,38 @@
 import Logger from "./helpers/logger";
 
 /**
+ * API-bridge timing details for host/GPU transfer overhead.
+ *
+ * These values represent JavaScript-side API time (queue writes, map/unmap,
+ * staging copies), not pure GPU execution time.
+ */
+export type BridgeTimingBreakdown = {
+  hostToGpuTime?: number;
+  hostToGpuAgentUploadTime?: number;
+  hostToGpuInputUploadTime?: number;
+  hostToGpuUniformUploadTime?: number;
+  hostToGpuTrailUploadTime?: number;
+  hostToGpuRandomUploadTime?: number;
+  hostToGpuObstacleUploadTime?: number;
+  gpuToHostTime?: number;
+  gpuToHostAgentReadbackTime?: number;
+  gpuToHostTrailReadbackTime?: number;
+  gpuToHostLogReadbackTime?: number;
+  queueSubmitTime?: number;
+};
+
+/**
+ * Memory-related metrics attached to a frame.
+ */
+export type FrameMemoryStats = {
+  jsHeapSizeLimitBytes?: number;
+  totalJsHeapSizeBytes?: number;
+  usedJsHeapSizeBytes?: number;
+  methodMemoryFootprintBytes?: number;
+  methodMemoryFootprintType?: "exact" | "estimate";
+};
+
+/**
  * Per-frame performance data recorded during simulation execution.
  *
  * @property method - Compute method used (e.g. `'JavaScript'`, `'WebGPU'`).
@@ -22,6 +54,8 @@ import Logger from "./helpers/logger";
  * @property readbackTime - Time spent reading results back from GPU/WASM memory.
  * @property compileTime - One-off pipeline compilation time (first frame only).
  * @property specificStats - Backend-specific timing breakdowns.
+ * @property bridgeTimings - Host/GPU API-bridge transfer breakdowns.
+ * @property memoryStats - JS heap and method memory footprint stats.
  */
 export type FramePerformance = {
   method: string;
@@ -35,6 +69,8 @@ export type FramePerformance = {
   readbackTime?: number;
   compileTime?: number;
   specificStats?: Record<string, number>;
+  bridgeTimings?: BridgeTimingBreakdown;
+  memoryStats?: FrameMemoryStats;
 };
 
 /**

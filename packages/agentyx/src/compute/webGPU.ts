@@ -34,6 +34,18 @@ export type WebGPUComputeResult = {
     setupTime: number;
     dispatchTime: number;
     readbackTime: number;
+    hostToGpuTime: number;
+    hostToGpuAgentUploadTime: number;
+    hostToGpuInputUploadTime: number;
+    hostToGpuUniformUploadTime: number;
+    hostToGpuTrailUploadTime: number;
+    hostToGpuRandomUploadTime: number;
+    hostToGpuObstacleUploadTime: number;
+    gpuToHostTime: number;
+    gpuToHostAgentReadbackTime: number;
+    gpuToHostTrailReadbackTime: number;
+    gpuToHostLogReadbackTime: number;
+    queueSubmitTime: number;
   };
 };
 
@@ -64,6 +76,8 @@ export default class WebGPU {
   private stagingTrailReadbackBuffer: GPUBuffer | null = null;
   private stagingTrailReadbackCapacity = 0;
   private agentVertexCapacity = 0;
+  private agentStorageCapacity = 0;
+  private agentLogCapacity = 0;
 
   // Reused uniform buffer (grow-only)
   private inputUniformBuffer: GPUBuffer | null = null;
@@ -239,6 +253,7 @@ export default class WebGPU {
         GPUBufferUsage.COPY_DST,
       "AgentStorage",
     );
+    this.agentStorageCapacity = AGENT_BUFFER_SIZE;
 
     // Read-only buffer for neighbor queries (snapshot of agent positions)
     this.agentsReadBuffer = this.gpuHelper.createEmptyBuffer(
@@ -264,6 +279,7 @@ export default class WebGPU {
         GPUBufferUsage.COPY_DST,
       "AgentLogBuffer",
     );
+    this.agentLogCapacity = LOG_BUFFER_SIZE;
 
     this.stagingLogBuffer = this.gpuHelper.createEmptyBuffer(
       device,
@@ -506,8 +522,10 @@ export default class WebGPU {
       incomingAgentCount !== this.agentCount ||
       agents !== this.lastSyncedAgentsRef;
 
+    let hostToGpuAgentUploadTime = 0;
+
     if (needsAgentSync) {
-      this.syncAgentsToGPU(device, agents);
+      hostToGpuAgentUploadTime = this.syncAgentsToGPU(device, agents);
       this.gpuStateSeeded = true;
       this.lastSyncedAgentsRef = agents;
     } else {
@@ -516,7 +534,9 @@ export default class WebGPU {
     }
 
     // Ensure uniform buffer and write inputs
-    this.ensureAndWriteInputs(device, inputs);
+    const inputUpload = this.ensureAndWriteInputs(device, inputs);
+    const hostToGpuTime =
+      hostToGpuAgentUploadTime + inputUpload.totalInputUploadTime;
 
     const setupEnd = performance.now();
     const setupTime = setupEnd - setupStart;
@@ -664,15 +684,21 @@ export default class WebGPU {
       }
     }
 
+    const queueSubmitStart = performance.now();
     device.queue.submit([encoder.finish()]);
+    const queueSubmitTime = performance.now() - queueSubmitStart;
 
     const dispatchEnd = performance.now();
     const dispatchTime = dispatchEnd - dispatchStart;
 
     // Perform CPU readback if requested
-    const readbackStart = performance.now();
     let updatedAgents: Agent[] | undefined;
+    let gpuToHostAgentReadbackTime = 0;
+    let gpuToHostTrailReadbackTime = 0;
+    let gpuToHostLogReadbackTime = 0;
+
     if (doAgentReadback) {
+      const readbackStepStart = performance.now();
       await this.stagingReadbackBuffer!.mapAsync(GPUMapMode.READ, 0, copySize);
       try {
         const data = new Float32Array(
@@ -694,9 +720,11 @@ export default class WebGPU {
       } finally {
         this.stagingReadbackBuffer!.unmap(); // reuse next call
       }
+      gpuToHostAgentReadbackTime = performance.now() - readbackStepStart;
     }
 
     if (doTrailReadback && outputTrailMap) {
+      const readbackStepStart = performance.now();
       await this.stagingTrailReadbackBuffer!.mapAsync(
         GPUMapMode.READ,
         0,
@@ -710,9 +738,11 @@ export default class WebGPU {
       } finally {
         this.stagingTrailReadbackBuffer!.unmap();
       }
+      gpuToHostTrailReadbackTime = performance.now() - readbackStepStart;
     }
 
     if (doAgentReadback && logCopySize > 0) {
+      const readbackStepStart = performance.now();
       await this.stagingLogBuffer!.mapAsync(GPUMapMode.READ, 0, logCopySize);
       try {
         const logData = new Float32Array(
@@ -728,10 +758,14 @@ export default class WebGPU {
       } finally {
         this.stagingLogBuffer!.unmap();
       }
+      gpuToHostLogReadbackTime = performance.now() - readbackStepStart;
     }
 
-    const readbackEnd = performance.now();
-    const readbackTime = readbackEnd - readbackStart;
+    const gpuToHostTime =
+      gpuToHostAgentReadbackTime +
+      gpuToHostTrailReadbackTime +
+      gpuToHostLogReadbackTime;
+    const readbackTime = readback ? gpuToHostTime : 0;
 
     return {
       updatedAgents,
@@ -750,16 +784,29 @@ export default class WebGPU {
       performance: {
         setupTime,
         dispatchTime,
-        readbackTime: readback ? readbackTime : 0,
+        readbackTime,
+        hostToGpuTime,
+        hostToGpuAgentUploadTime,
+        hostToGpuInputUploadTime: inputUpload.totalInputUploadTime,
+        hostToGpuUniformUploadTime: inputUpload.uniformUploadTime,
+        hostToGpuTrailUploadTime: inputUpload.trailUploadTime,
+        hostToGpuRandomUploadTime: inputUpload.randomUploadTime,
+        hostToGpuObstacleUploadTime: inputUpload.obstacleUploadTime,
+        gpuToHostTime,
+        gpuToHostAgentReadbackTime,
+        gpuToHostTrailReadbackTime,
+        gpuToHostLogReadbackTime,
+        queueSubmitTime,
       },
     };
   }
 
   // --- Internals ---
 
-  private syncAgentsToGPU(device: GPUDevice, agents: Agent[]) {
+  private syncAgentsToGPU(device: GPUDevice, agents: Agent[]): number {
+    const uploadStart = performance.now();
     this.agentCount = agents.length;
-    if (this.agentCount === 0) return;
+    if (this.agentCount === 0) return 0;
 
     const data = new Float32Array(this.agentCount * COMPONENTS_PER_AGENT);
 
@@ -776,9 +823,24 @@ export default class WebGPU {
 
     this.gpuHelper.writeBuffer(device, this.agentStorageBuffer!, data);
     // Only the populated portion of the buffer is considered valid this frame.
+
+    return performance.now() - uploadStart;
   }
 
-  private ensureAndWriteInputs(device: GPUDevice, inputs: InputValues) {
+  private ensureAndWriteInputs(
+    device: GPUDevice,
+    inputs: InputValues,
+  ): {
+    uniformUploadTime: number;
+    trailUploadTime: number;
+    randomUploadTime: number;
+    obstacleUploadTime: number;
+    totalInputUploadTime: number;
+  } {
+    let uniformUploadTime = 0;
+    let trailUploadTime = 0;
+    let randomUploadTime = 0;
+    let obstacleUploadTime = 0;
     const bufferInputs = ["trailMap", "randomValues", "obstacles"]; // these have their own storage bindings
 
     // If obstacles are used, derive obstacleCount locally for uniform packing.
@@ -814,6 +876,7 @@ export default class WebGPU {
     }
 
     const f32 = new Float32Array(values);
+    const uniformUploadStart = performance.now();
     device.queue.writeBuffer(
       this.inputUniformBuffer!,
       0,
@@ -821,6 +884,7 @@ export default class WebGPU {
       f32.byteOffset,
       byteLen,
     );
+    uniformUploadTime += performance.now() - uniformUploadStart;
 
     // Handle TrailMap - only upload from CPU on first frame
     // After initial seeding, the trail map lives entirely on GPU
@@ -867,6 +931,7 @@ export default class WebGPU {
 
       // Only upload from CPU on first frame - after that, trail map lives on GPU
       if (!this.trailMapGPUSeeded) {
+        const trailUploadStart = performance.now();
         device.queue.writeBuffer(
           this.trailMapBuffer!,
           0,
@@ -878,6 +943,7 @@ export default class WebGPU {
         const zeros = new Float32Array(trailMap.length);
         device.queue.writeBuffer(this.trailMapBuffer2!, 0, zeros);
         device.queue.writeBuffer(this.trailMapDeposits!, 0, zeros);
+        trailUploadTime += performance.now() - trailUploadStart;
         this.trailMapGPUSeeded = true;
         this.logger.info("Trail map seeded to GPU (first frame only)");
       }
@@ -899,6 +965,7 @@ export default class WebGPU {
         this.randomValuesCapacity = size;
       }
 
+      const randomUploadStart = performance.now();
       device.queue.writeBuffer(
         this.randomValuesBuffer!,
         0,
@@ -906,6 +973,7 @@ export default class WebGPU {
         randomValues.byteOffset,
         randomValues.byteLength,
       );
+      randomUploadTime += performance.now() - randomUploadStart;
     }
 
     // Handle Obstacles — written every frame so real-time changes propagate
@@ -938,6 +1006,7 @@ export default class WebGPU {
         obstacleData[i * 4 + 3] = ob.h;
       }
 
+      const obstacleUploadStart = performance.now();
       device.queue.writeBuffer(
         this.obstaclesBuffer!,
         0,
@@ -945,7 +1014,20 @@ export default class WebGPU {
         obstacleData.byteOffset,
         obstacleData.byteLength,
       );
+      obstacleUploadTime += performance.now() - obstacleUploadStart;
     }
+
+    return {
+      uniformUploadTime,
+      trailUploadTime,
+      randomUploadTime,
+      obstacleUploadTime,
+      totalInputUploadTime:
+        uniformUploadTime +
+        trailUploadTime +
+        randomUploadTime +
+        obstacleUploadTime,
+    };
   }
 
   private ensureTrailReadbackBuffer(device: GPUDevice, size: number) {
@@ -1010,6 +1092,41 @@ export default class WebGPU {
     return [dispatchX, dispatchY, dispatchZ];
   }
 
+  /**
+   * Approximate allocated GPU memory footprint in bytes.
+   *
+   * This sums the currently allocated buffer capacities managed by this
+   * compute backend (not total driver/device memory usage).
+   */
+  getMemoryFootprintBytes(): {
+    totalBytes: number;
+    breakdown: Record<string, number>;
+  } {
+    const breakdown: Record<string, number> = {
+      agentStorage: this.agentStorageCapacity,
+      agentsRead: this.agentStorageCapacity,
+      stagingReadback: this.agentStorageCapacity,
+      agentVertex: this.agentVertexCapacity,
+      agentLogs: this.agentLogCapacity,
+      stagingLogs: this.agentLogCapacity,
+      stagingTrailReadback: this.stagingTrailReadbackCapacity,
+      inputUniform: this.inputUniformCapacity,
+      diffuseUniform: this.diffuseUniformBuffer ? 16 : 0,
+      trailMapRead: this.trailMapCapacity,
+      trailMapWrite: this.trailMapCapacity,
+      trailMapDeposits: this.trailMapCapacity,
+      randomValues: this.randomValuesCapacity,
+      obstacles: this.obstaclesCapacity,
+    };
+
+    const totalBytes = Object.values(breakdown).reduce(
+      (total, value) => total + value,
+      0,
+    );
+
+    return { totalBytes, breakdown };
+  }
+
   destroy() {
     this.agentStorageBuffer?.destroy();
     this.agentsReadBuffer?.destroy();
@@ -1055,5 +1172,7 @@ export default class WebGPU {
     this.obstaclesCapacity = 0;
     this.stagingTrailReadbackCapacity = 0;
     this.agentVertexCapacity = 0;
+    this.agentStorageCapacity = 0;
+    this.agentLogCapacity = 0;
   }
 }

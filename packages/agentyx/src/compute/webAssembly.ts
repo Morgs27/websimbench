@@ -7,7 +7,7 @@
  * the compiled `step_all` export for each simulation frame.
  */
 
-import type { Agent, InputValues } from "../types.js";
+import type { Agent, InputValues, WasmExecutionMode } from "../types.js";
 import Logger from "../helpers/logger.js";
 import wabt from "wabt";
 
@@ -31,10 +31,23 @@ const getWabtModule = async () => {
 export const compileWATtoWASM = async (
   watCode: string,
   logger: Logger,
+  options: { simd?: boolean } = {},
 ): Promise<WebAssembly.Module> => {
   try {
     const wabtModule = await getWabtModule();
-    const parsed = wabtModule.parseWat("dsl_module.wat", watCode);
+    const parseWat = wabtModule.parseWat as (
+      filename: string,
+      source: string,
+      features?: Record<string, boolean>,
+    ) => {
+      toBinary: (opts: { write_debug_names: boolean }) => {
+        buffer: Uint8Array;
+      };
+      destroy?: () => void;
+    };
+    const parsed = parseWat("dsl_module.wat", watCode, {
+      simd: options.simd === true,
+    });
 
     try {
       const { buffer } = parsed.toBinary({ write_debug_names: true });
@@ -55,6 +68,78 @@ const f32PerAgent = bytesPerAgent / 4;
 const basePtr = 0;
 const baseF32 = basePtr >>> 2;
 const wasmPageSize = 64 * 1024;
+const SIMD_MEMCPY_EXPORT = "simd_memcpy";
+
+const SIMD_WASM_PROBE = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00,
+  0x00, 0x03, 0x02, 0x01, 0x00, 0x0a, 0x17, 0x01, 0x15, 0x00, 0xfd, 0x0c, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x1a, 0x0b,
+]);
+
+const SIMD_MEMCPY_WAT_HELPER = `
+(func (export "simd_memcpy") (param $dst i32) (param $src i32) (param $bytes i32)
+  (local $i i32)
+  (local.set $i (i32.const 0))
+
+  (block $simd_done
+    (loop $simd_loop
+      (br_if $simd_done (i32.gt_u (i32.add (local.get $i) (i32.const 16)) (local.get $bytes)))
+      (v128.store
+        (i32.add (local.get $dst) (local.get $i))
+        (v128.load (i32.add (local.get $src) (local.get $i)))
+      )
+      (local.set $i (i32.add (local.get $i) (i32.const 16)))
+      (br $simd_loop)
+    )
+  )
+
+  (block $tail_done
+    (loop $tail_loop
+      (br_if $tail_done (i32.ge_u (local.get $i) (local.get $bytes)))
+      (i32.store8
+        (i32.add (local.get $dst) (local.get $i))
+        (i32.load8_u (i32.add (local.get $src) (local.get $i)))
+      )
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $tail_loop)
+    )
+  )
+)
+`;
+
+export const supportsWasmSIMD = (): boolean => {
+  if (typeof WebAssembly === "undefined") {
+    return false;
+  }
+
+  if (typeof WebAssembly.validate !== "function") {
+    return false;
+  }
+
+  try {
+    const probe = new Uint8Array(SIMD_WASM_PROBE.byteLength);
+    probe.set(SIMD_WASM_PROBE);
+    return WebAssembly.validate(probe);
+  } catch {
+    return false;
+  }
+};
+
+const withSimdMemcpyHelper = (watCode: string): string => {
+  if (watCode.includes(`(export "${SIMD_MEMCPY_EXPORT}")`)) {
+    return watCode;
+  }
+
+  const moduleEnd = watCode.lastIndexOf(")");
+  if (moduleEnd === -1) {
+    throw new Error(
+      "Invalid WAT module: missing closing ')' for SIMD helper injection.",
+    );
+  }
+
+  return `${watCode.slice(0, moduleEnd)}\n${SIMD_MEMCPY_WAT_HELPER}\n${watCode.slice(moduleEnd)}`;
+};
 
 /** @internal WASM linear-memory layout for a single frame. */
 type MemoryLayout = {
@@ -76,7 +161,12 @@ export type WASMComputeResult = {
     writeTime: number;
     computeTime: number;
     readTime: number;
+    simdMemcpyTime: number;
   };
+};
+
+export type WebAssemblyComputeOptions = {
+  executionMode?: WasmExecutionMode;
 };
 
 /**
@@ -93,18 +183,67 @@ export class WebAssemblyCompute {
   private exports: Record<string, unknown> | undefined = undefined;
   private stepAll: ((base: number, count: number) => void) | undefined =
     undefined;
+  private simdMemcpy:
+    | ((dstPtr: number, srcPtr: number, byteLength: number) => void)
+    | undefined = undefined;
   private readonly agentCount: number;
   private readonly watCode: string;
+  private readonly requestedExecutionMode: WasmExecutionMode;
+  private effectiveExecutionMode: "scalar" | "simd" = "scalar";
+  private simdSupported = false;
 
-  constructor(watCode: string, agentCount: number) {
+  constructor(
+    watCode: string,
+    agentCount: number,
+    options: WebAssemblyComputeOptions = {},
+  ) {
     this.logger = new Logger("WebAssemblyCompute");
     this.agentCount = agentCount;
     this.watCode = watCode;
+    this.requestedExecutionMode = options.executionMode ?? "auto";
   }
 
   /** Compile WAT, create WASM instance, and bind the `step_all` export. */
   async init() {
-    const wasmModule = await compileWATtoWASM(this.watCode, this.logger);
+    this.simdSupported = supportsWasmSIMD();
+
+    if (this.requestedExecutionMode === "simd" && !this.simdSupported) {
+      throw new Error(
+        "WASM SIMD execution mode requested, but this runtime does not support WebAssembly SIMD.",
+      );
+    }
+
+    const prefersSimd =
+      this.requestedExecutionMode === "simd" ||
+      (this.requestedExecutionMode === "auto" && this.simdSupported);
+
+    let effectiveMode: "scalar" | "simd" = prefersSimd ? "simd" : "scalar";
+    let watToCompile =
+      effectiveMode === "simd"
+        ? withSimdMemcpyHelper(this.watCode)
+        : this.watCode;
+    let wasmModule: WebAssembly.Module;
+
+    try {
+      wasmModule = await compileWATtoWASM(watToCompile, this.logger, {
+        simd: effectiveMode === "simd",
+      });
+    } catch (error) {
+      if (effectiveMode === "simd" && this.requestedExecutionMode === "auto") {
+        this.logger.warn(
+          `SIMD WASM compile failed, falling back to scalar mode: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        effectiveMode = "scalar";
+        watToCompile = this.watCode;
+        wasmModule = await compileWATtoWASM(watToCompile, this.logger, {
+          simd: false,
+        });
+      } else {
+        throw error;
+      }
+    }
 
     const bytesNeeded = this.agentCount * bytesPerAgent;
     const initialPages = Math.ceil(bytesNeeded / wasmPageSize) + 1;
@@ -133,7 +272,37 @@ export class WebAssemblyCompute {
     }
     this.stepAll = stepAll as (base: number, count: number) => void;
 
+    const simdMemcpyExport = this.exports[SIMD_MEMCPY_EXPORT];
+    if (effectiveMode === "simd") {
+      if (typeof simdMemcpyExport !== "function") {
+        if (this.requestedExecutionMode === "auto") {
+          this.logger.warn(
+            "SIMD memcpy export missing in WASM module; falling back to scalar mode.",
+          );
+          this.simdMemcpy = undefined;
+          this.effectiveExecutionMode = "scalar";
+        } else {
+          throw new Error(
+            "WASM SIMD mode requested, but SIMD memcpy export is unavailable.",
+          );
+        }
+      } else {
+        this.simdMemcpy = simdMemcpyExport as (
+          dstPtr: number,
+          srcPtr: number,
+          byteLength: number,
+        ) => void;
+        this.effectiveExecutionMode = "simd";
+      }
+    } else {
+      this.simdMemcpy = undefined;
+      this.effectiveExecutionMode = "scalar";
+    }
+
     this.f32 = new Float32Array(this.memory.buffer);
+    this.logger.info(
+      `Initialized in ${this.effectiveExecutionMode} mode (requested: ${this.requestedExecutionMode}, simdSupported: ${this.simdSupported}).`,
+    );
   }
 
   /**
@@ -157,7 +326,21 @@ export class WebAssemblyCompute {
     const packedAgents = this.packAgents(agents);
 
     f32.set(packedAgents, baseF32);
-    f32.set(packedAgents, layout.agentsReadPtr >>> 2);
+    let simdMemcpyTime = 0;
+    const packedByteLength = packedAgents.byteLength;
+
+    if (
+      this.effectiveExecutionMode === "simd" &&
+      this.simdMemcpy &&
+      layout.agentsReadPtr > 0 &&
+      packedByteLength > 0
+    ) {
+      const simdCopyStart = performance.now();
+      this.simdMemcpy(layout.agentsReadPtr, basePtr, packedByteLength);
+      simdMemcpyTime = performance.now() - simdCopyStart;
+    } else {
+      f32.set(packedAgents, layout.agentsReadPtr >>> 2);
+    }
 
     this.setGlobal("agentsReadPtr", layout.agentsReadPtr);
 
@@ -240,6 +423,7 @@ export class WebAssemblyCompute {
         writeTime: writeEnd - writeStart,
         computeTime: computeEnd - computeStart,
         readTime: readEnd - readStart,
+        simdMemcpyTime,
       },
     };
   }
@@ -247,9 +431,34 @@ export class WebAssemblyCompute {
   /** Release all WASM resources. */
   destroy() {
     this.stepAll = undefined;
+    this.simdMemcpy = undefined;
     this.exports = undefined;
     this.f32 = undefined;
     this.memory = undefined;
+  }
+
+  /**
+   * Current linear-memory allocation size in bytes.
+   *
+   * Represents the active WebAssembly memory footprint for this backend.
+   */
+  getMemoryFootprintBytes(): number {
+    return this.memory?.buffer.byteLength ?? 0;
+  }
+
+  /**
+   * Execution mode metadata used for benchmark reporting.
+   */
+  getExecutionInfo(): {
+    requestedMode: WasmExecutionMode;
+    effectiveMode: "scalar" | "simd";
+    simdSupported: boolean;
+  } {
+    return {
+      requestedMode: this.requestedExecutionMode,
+      effectiveMode: this.effectiveExecutionMode,
+      simdSupported: this.simdSupported,
+    };
   }
 
   private computeLayout(

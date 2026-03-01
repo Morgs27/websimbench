@@ -10,7 +10,7 @@
 import { Compiler } from "./compiler/compiler";
 import { ComputeEngine } from "./compute/compute";
 import Logger from "./helpers/logger";
-import { PerformanceMonitor } from "./performance";
+import { PerformanceMonitor, type FrameMemoryStats } from "./performance";
 import { Renderer } from "./renderer";
 import {
   SimulationTracker,
@@ -261,6 +261,7 @@ export class Simulation {
       this.performanceMonitor,
       options.agents,
       options.workers,
+      options.wasmExecutionMode ?? "auto",
     );
 
     if (config.canvas) {
@@ -367,6 +368,30 @@ export class Simulation {
     }
 
     return { width: this.width, height: this.height };
+  }
+
+  private captureJsHeapSnapshot(): FrameMemoryStats | undefined {
+    if (typeof performance === "undefined") {
+      return undefined;
+    }
+
+    const perf = performance as Performance & {
+      memory?: {
+        jsHeapSizeLimit: number;
+        totalJSHeapSize: number;
+        usedJSHeapSize: number;
+      };
+    };
+
+    if (!perf.memory) {
+      return undefined;
+    }
+
+    return {
+      jsHeapSizeLimitBytes: perf.memory.jsHeapSizeLimit,
+      totalJsHeapSizeBytes: perf.memory.totalJSHeapSize,
+      usedJsHeapSizeBytes: perf.memory.usedJSHeapSize,
+    };
   }
 
   /**
@@ -622,6 +647,13 @@ export class Simulation {
       if (lastFrame) {
         lastFrame.renderTime = renderTime;
         lastFrame.totalExecutionTime += renderTime;
+        const jsHeapSnapshot = this.captureJsHeapSnapshot();
+        if (jsHeapSnapshot) {
+          lastFrame.memoryStats = {
+            ...(lastFrame.memoryStats ?? {}),
+            ...jsHeapSnapshot,
+          };
+        }
       }
 
       const currentFrameNumber = this.frameNumber;
@@ -673,6 +705,16 @@ export class Simulation {
   }
 
   /**
+   * Finalize tracking and wait for pending async metric capture to settle.
+   *
+   * Useful before exporting a benchmark report to ensure end timestamps,
+   * environment metrics, and the final runtime sample are present.
+   */
+  public async finalizeTracking(): Promise<void> {
+    await this.tracker.finalize();
+  }
+
+  /**
    * Export the tracking report as a formatted JSON string.
    *
    * @param filter - Optional filter to restrict the frame range and inclusions.
@@ -706,6 +748,8 @@ export class Simulation {
   public destroy(): void {
     this.tracker.complete();
     this.tracker.dispose();
+    this.renderer?.resetGPUState();
+    this.renderer = null;
     this.computeEngine.destroy();
     this.agents = [];
     this.trailMap = null;

@@ -115,6 +115,10 @@ export class Renderer {
   private gpuAgentBuffer: GPUBuffer | null = null;
   private gpuAgentBufferSize = 0;
   private gpuPipelineDevice: GPUDevice | null = null;
+  private gpuSpeciesPaletteBuffer: GPUBuffer | null = null;
+  private gpuSpeciesPaletteBufferSize = 0;
+  private gpuTrailUniformBuffer: GPUBuffer | null = null;
+  private gpuTrailUniformBufferSize = 0;
 
   private gpuManualTrailBuffer: GPUBuffer | null = null;
   private gpuManualTrailBufferSize = 0;
@@ -556,6 +560,7 @@ export class Renderer {
     }
 
     if (!this.gpuAgentBuffer || this.gpuAgentBufferSize < data.byteLength) {
+      this.gpuAgentBuffer?.destroy();
       this.gpuAgentBuffer = this.gpuHelper.createBuffer(
         device,
         data,
@@ -593,6 +598,7 @@ export class Renderer {
       !this.gpuManualTrailBuffer ||
       this.gpuManualTrailBufferSize < byteSize
     ) {
+      this.gpuManualTrailBuffer?.destroy();
       this.gpuManualTrailBuffer = this.gpuHelper.createBuffer(
         device,
         trailMap,
@@ -639,6 +645,7 @@ export class Renderer {
       !this.gpuUniformBuffer ||
       this.gpuUniformBufferSize < uniformData.byteLength
     ) {
+      this.gpuUniformBuffer?.destroy();
       this.gpuUniformBuffer = this.gpuHelper.createBuffer(
         device,
         null,
@@ -663,17 +670,30 @@ export class Renderer {
       paletteData[i * 4 + 2] = b;
       paletteData[i * 4 + 3] = 1.0;
     }
-    const paletteBuffer = this.gpuHelper.createBuffer(
+    if (
+      !this.gpuSpeciesPaletteBuffer ||
+      this.gpuSpeciesPaletteBufferSize < paletteData.byteLength
+    ) {
+      this.gpuSpeciesPaletteBuffer?.destroy();
+      this.gpuSpeciesPaletteBuffer = this.gpuHelper.createBuffer(
+        device,
+        null,
+        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        paletteData.byteLength,
+      );
+      this.gpuSpeciesPaletteBufferSize = paletteData.byteLength;
+    }
+    this.gpuHelper.writeBuffer(
       device,
+      this.gpuSpeciesPaletteBuffer,
       paletteData,
-      GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     );
 
     const bindGroup = device.createBindGroup({
       layout: this.gpuBindGroupLayout!,
       entries: [
         { binding: 0, resource: { buffer: this.gpuUniformBuffer } },
-        { binding: 1, resource: { buffer: paletteBuffer } },
+        { binding: 1, resource: { buffer: this.gpuSpeciesPaletteBuffer! } },
       ],
     });
 
@@ -712,17 +732,30 @@ export class Renderer {
         b,
         this.appearance.trailOpacity ?? 1.0,
       ]);
-      const trailUniformBuffer = this.gpuHelper.createBuffer(
+      if (
+        !this.gpuTrailUniformBuffer ||
+        this.gpuTrailUniformBufferSize < trailUniformData.byteLength
+      ) {
+        this.gpuTrailUniformBuffer?.destroy();
+        this.gpuTrailUniformBuffer = this.gpuHelper.createBuffer(
+          device,
+          null,
+          GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          trailUniformData.byteLength,
+        );
+        this.gpuTrailUniformBufferSize = trailUniformData.byteLength;
+      }
+      this.gpuHelper.writeBuffer(
         device,
+        this.gpuTrailUniformBuffer,
         trailUniformData,
-        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       );
 
       const trailBindGroup = device.createBindGroup({
         layout: this.gpuTrailBindGroupLayout,
         entries: [
           { binding: 0, resource: { buffer: activeTrailBuffer } },
-          { binding: 1, resource: { buffer: trailUniformBuffer } },
+          { binding: 1, resource: { buffer: this.gpuTrailUniformBuffer! } },
         ],
       });
 
@@ -769,6 +802,13 @@ export class Renderer {
    * @internal
    */
   public resetGPUState(): void {
+    this.gpuQuadBuffer?.destroy();
+    this.gpuUniformBuffer?.destroy();
+    this.gpuAgentBuffer?.destroy();
+    this.gpuManualTrailBuffer?.destroy();
+    this.gpuSpeciesPaletteBuffer?.destroy();
+    this.gpuTrailUniformBuffer?.destroy();
+
     this.gpuPipeline = null;
     this.gpuPipelineDevice = null;
     this.gpuBindGroupLayout = null;
@@ -781,6 +821,10 @@ export class Renderer {
     this.gpuAgentBufferSize = 0;
     this.gpuManualTrailBuffer = null;
     this.gpuManualTrailBufferSize = 0;
+    this.gpuSpeciesPaletteBuffer = null;
+    this.gpuSpeciesPaletteBufferSize = 0;
+    this.gpuTrailUniformBuffer = null;
+    this.gpuTrailUniformBufferSize = 0;
   }
 }
 

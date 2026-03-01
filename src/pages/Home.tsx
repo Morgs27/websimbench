@@ -44,6 +44,8 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
   const {
     code,
     setCode,
+    simulationName,
+    setSimulationName,
     compiledCode,
     inputs,
     definedInputs,
@@ -76,34 +78,58 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
   const benchmark = useBenchmark();
   const benchmarkDB = useBenchmarkDB();
 
+  const slugify = (name: string): string =>
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "simulation";
+
   const handleBenchmarkRun = useCallback(async () => {
     if (!canvasRef.current) return;
     const res = await benchmark.runBenchmark(
       code,
       benchmark.config,
       canvasRef.current,
+      gpuCanvasRef.current ?? undefined,
+      simulationName,
     );
     if (res) {
       // Auto-save to IndexedDB
       const { entry, combinedBlob } = benchmark.buildEntry(res);
       await benchmarkDB.saveBenchmark(entry, combinedBlob);
     }
-  }, [code, benchmark, canvasRef, benchmarkDB]);
+  }, [code, benchmark, canvasRef, gpuCanvasRef, benchmarkDB, simulationName]);
 
   const handleBenchmarkDownload = useCallback(
     (index: number) => {
       if (!benchmark.result) return;
       const r = benchmark.result.reports[index];
       if (!r) return;
+      const simSlug = slugify(
+        benchmark.result.simulationName || simulationName,
+      );
       const url = URL.createObjectURL(r.reportBlob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `benchmark-${r.method}-${r.agentCount}-${Date.now()}.json`;
+      a.download = `${simSlug}_${r.method.toLowerCase()}_${r.agentCount}.json`;
       a.click();
       URL.revokeObjectURL(url);
     },
-    [benchmark.result],
+    [benchmark.result, simulationName],
   );
+
+  const handleBenchmarkDownloadFullReport = useCallback(() => {
+    if (!benchmark.result) return;
+    const { combinedBlob } = benchmark.buildEntry(benchmark.result);
+    const simSlug = slugify(benchmark.result.simulationName || simulationName);
+    const url = URL.createObjectURL(combinedBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${simSlug}_benchmark_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [benchmark, simulationName]);
 
   const handleBenchmarkSave = useCallback(async () => {
     if (!benchmark.result) return;
@@ -113,16 +139,18 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
 
   const handleDownloadRecent = useCallback(
     async (id: string) => {
+      const entry = benchmarkDB.entries.find((e) => e.id === id);
       const blob = await benchmarkDB.getReportBlob(id);
       if (!blob) return;
+      const simSlug = slugify(entry?.label || simulationName);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `benchmark-${id}.json`;
+      a.download = `${simSlug}_benchmark_${id.slice(0, 8)}.json`;
       a.click();
       URL.revokeObjectURL(url);
     },
-    [benchmarkDB],
+    [benchmarkDB, simulationName],
   );
 
   const handlePlaceObstacle = (
@@ -163,6 +191,8 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
             <EditorPanel
               code={code}
               setCode={setCode}
+              simulationName={simulationName}
+              setSimulationName={setSimulationName}
               handleSaveCode={handleSaveCode}
               handleLoadCode={handleLoadCode}
               compiledCode={compiledCode}
@@ -243,7 +273,7 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
             <HeaderIconButton
               onClick={() => setOptionsOpen(true)}
               title="System Configuration"
-              icon={<Gear size={40} weight="fill" />}
+              icon={<Gear size={14} weight="fill" />}
               label="Options"
               className="hide-mobile"
             />
@@ -285,7 +315,11 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
                   benchmarkResult={benchmark.result}
                   onBenchmarkRun={handleBenchmarkRun}
                   onBenchmarkStop={benchmark.stopBenchmark}
+                  onBenchmarkReset={benchmark.resetBenchmark}
                   onBenchmarkDownload={handleBenchmarkDownload}
+                  onBenchmarkDownloadFullReport={
+                    handleBenchmarkDownloadFullReport
+                  }
                   onBenchmarkSave={handleBenchmarkSave}
                   benchmarkRecentEntries={benchmarkDB.entries}
                   onBenchmarkDownloadRecent={handleDownloadRecent}

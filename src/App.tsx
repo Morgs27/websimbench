@@ -10,6 +10,7 @@ import {
 
 import { Toaster } from "@/components/ui/sonner";
 import { Home } from "./pages/Home";
+import { BenchmarksPage } from "./pages/BenchmarksPage";
 import {
   AppRoute,
   createHashRoute,
@@ -133,6 +134,8 @@ function App() {
             }}
           />
         );
+      case "reports":
+        return <BenchmarksPage />;
       case "home":
       default:
         return (

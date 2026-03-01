@@ -35,6 +35,8 @@ import "./EditorPanel.css";
 interface EditorPanelProps {
   code: string;
   setCode: (code: string) => void;
+  simulationName: string;
+  setSimulationName: (name: string) => void;
   handleSaveCode: () => void;
   handleLoadCode: (e: React.ChangeEvent<HTMLInputElement>) => void;
   compiledCode: { js: string; wasm: string; wgsl: string };
@@ -58,6 +60,8 @@ const DSL_DOC_LINKS = [
 export const EditorPanel = ({
   code,
   setCode,
+  simulationName,
+  setSimulationName,
   handleSaveCode,
   handleLoadCode,
   compiledCode,
@@ -77,10 +81,8 @@ export const EditorPanel = ({
     });
   };
 
-  const handleLoadPremade = (simCode: string) => {
-    // Confirm before overwriting if the code is not empty?
-    // For now, just overwrite as requested by "load" behavior usually implies replacement.
-    // If we wanted to be safer we could check if code !== DEFAULT_CODE etc.
+  const handleLoadPremade = (simName: string, simCode: string) => {
+    setSimulationName(simName);
     setCode(simCode);
   };
 
@@ -115,6 +117,14 @@ export const EditorPanel = ({
           ]}
         />
 
+        <input
+          className="editor-sim-name-input"
+          value={simulationName}
+          onChange={(e) => setSimulationName(e.target.value)}
+          placeholder="Untitled Sim"
+          spellCheck={false}
+        />
+
         <div className="editor-actions">
           {isCompiling && (
             <div className="editor-compiling">
@@ -147,7 +157,7 @@ export const EditorPanel = ({
                   <DropdownMenuItem
                     key={name}
                     className="editor-simulation-item"
-                    onClick={() => handleLoadPremade(simulation.code)}
+                    onClick={() => handleLoadPremade(name, simulation.code)}
                   >
                     <span className="editor-simulation-item-icon">
                       <Icon size={14} weight="bold" />
@@ -245,7 +255,10 @@ export const EditorPanel = ({
                     type="button"
                     className="editor-empty-link-btn editor-empty-link-btn-primary"
                     onClick={() =>
-                      handleLoadPremade(PREMADE_SIMULATIONS["Tutorial"].code)
+                      handleLoadPremade(
+                        "Tutorial",
+                        PREMADE_SIMULATIONS["Tutorial"].code,
+                      )
                     }
                   >
                     <RocketLaunch size={14} weight="bold" />

@@ -3320,6 +3320,30 @@ var WebWorkers = class {
     this.workers = [];
     URL.revokeObjectURL(this.workerScriptUrl);
   }
+  /**
+   * Number of worker threads managed by this backend.
+   */
+  getWorkerCount() {
+    return this.workerCount;
+  }
+  /**
+   * Approximate per-frame worker memory/transfer footprint in bytes.
+   *
+   * This is an estimate based on structured-clone payload sizes and does not
+   * include browser-internal worker heap overhead.
+   */
+  estimateMemoryFootprintBytes(agentCount, inputValues) {
+    const activeWorkers = Math.min(
+      this.workerCount,
+      Math.max(1, Math.floor(agentCount))
+    );
+    const agentBytes = Math.max(0, Math.floor(agentCount)) * 6 * 4;
+    const trailMapBytes = inputValues.trailMapRead instanceof Float32Array ? inputValues.trailMapRead.byteLength : 0;
+    const randomValuesBytes = inputValues.randomValues instanceof Float32Array ? inputValues.randomValues.byteLength : 0;
+    const obstacleBytes = Array.isArray(inputValues.obstacles) ? inputValues.obstacles.length * 4 * 4 : 0;
+    const duplicatedInputBytes = trailMapBytes + randomValuesBytes + obstacleBytes;
+    return agentBytes + duplicatedInputBytes * activeWorkers;
+  }
   sanitizeWorkerInputs(inputValues) {
     const sanitized = {};
     for (const [key, value] of Object.entries(inputValues)) {
@@ -3599,6 +3623,8 @@ var WebGPU = class {
     this.stagingTrailReadbackBuffer = null;
     this.stagingTrailReadbackCapacity = 0;
     this.agentVertexCapacity = 0;
+    this.agentStorageCapacity = 0;
+    this.agentLogCapacity = 0;
     // Reused uniform buffer (grow-only)
     this.inputUniformBuffer = null;
     this.inputUniformCapacity = 0;
@@ -3737,6 +3763,7 @@ var WebGPU = class {
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
       "AgentStorage"
     );
+    this.agentStorageCapacity = AGENT_BUFFER_SIZE;
     this.agentsReadBuffer = this.gpuHelper.createEmptyBuffer(
       device,
       AGENT_BUFFER_SIZE,
@@ -3756,6 +3783,7 @@ var WebGPU = class {
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
       "AgentLogBuffer"
     );
+    this.agentLogCapacity = LOG_BUFFER_SIZE;
     this.stagingLogBuffer = this.gpuHelper.createEmptyBuffer(
       device,
       LOG_BUFFER_SIZE,
@@ -3951,14 +3979,16 @@ var WebGPU = class {
     const device = this.device;
     const incomingAgentCount = agents.length;
     const needsAgentSync = !this.gpuStateSeeded || incomingAgentCount !== this.agentCount || agents !== this.lastSyncedAgentsRef;
+    let hostToGpuAgentUploadTime = 0;
     if (needsAgentSync) {
-      this.syncAgentsToGPU(device, agents);
+      hostToGpuAgentUploadTime = this.syncAgentsToGPU(device, agents);
       this.gpuStateSeeded = true;
       this.lastSyncedAgentsRef = agents;
     } else {
       this.agentCount = incomingAgentCount;
     }
-    this.ensureAndWriteInputs(device, inputs);
+    const inputUpload = this.ensureAndWriteInputs(device, inputs);
+    const hostToGpuTime = hostToGpuAgentUploadTime + inputUpload.totalInputUploadTime;
     const setupEnd = performance.now();
     const setupTime = setupEnd - setupStart;
     const dispatchStart = performance.now();
@@ -4079,12 +4109,17 @@ var WebGPU = class {
         doTrailReadback = true;
       }
     }
+    const queueSubmitStart = performance.now();
     device.queue.submit([encoder.finish()]);
+    const queueSubmitTime = performance.now() - queueSubmitStart;
     const dispatchEnd = performance.now();
     const dispatchTime = dispatchEnd - dispatchStart;
-    const readbackStart = performance.now();
     let updatedAgents;
+    let gpuToHostAgentReadbackTime = 0;
+    let gpuToHostTrailReadbackTime = 0;
+    let gpuToHostLogReadbackTime = 0;
     if (doAgentReadback) {
+      const readbackStepStart = performance.now();
       await this.stagingReadbackBuffer.mapAsync(GPUMapMode.READ, 0, copySize);
       try {
         const data = new Float32Array(
@@ -4103,8 +4138,10 @@ var WebGPU = class {
       } finally {
         this.stagingReadbackBuffer.unmap();
       }
+      gpuToHostAgentReadbackTime = performance.now() - readbackStepStart;
     }
     if (doTrailReadback && outputTrailMap) {
+      const readbackStepStart = performance.now();
       await this.stagingTrailReadbackBuffer.mapAsync(
         GPUMapMode.READ,
         0,
@@ -4118,8 +4155,10 @@ var WebGPU = class {
       } finally {
         this.stagingTrailReadbackBuffer.unmap();
       }
+      gpuToHostTrailReadbackTime = performance.now() - readbackStepStart;
     }
     if (doAgentReadback && logCopySize > 0) {
+      const readbackStepStart = performance.now();
       await this.stagingLogBuffer.mapAsync(GPUMapMode.READ, 0, logCopySize);
       try {
         const logData = new Float32Array(
@@ -4135,9 +4174,10 @@ var WebGPU = class {
       } finally {
         this.stagingLogBuffer.unmap();
       }
+      gpuToHostLogReadbackTime = performance.now() - readbackStepStart;
     }
-    const readbackEnd = performance.now();
-    const readbackTime = readbackEnd - readbackStart;
+    const gpuToHostTime = gpuToHostAgentReadbackTime + gpuToHostTrailReadbackTime + gpuToHostLogReadbackTime;
+    const readbackTime = readback ? gpuToHostTime : 0;
     return {
       updatedAgents,
       renderResources: !readback && this.agentVertexBuffer ? {
@@ -4150,14 +4190,27 @@ var WebGPU = class {
       performance: {
         setupTime,
         dispatchTime,
-        readbackTime: readback ? readbackTime : 0
+        readbackTime,
+        hostToGpuTime,
+        hostToGpuAgentUploadTime,
+        hostToGpuInputUploadTime: inputUpload.totalInputUploadTime,
+        hostToGpuUniformUploadTime: inputUpload.uniformUploadTime,
+        hostToGpuTrailUploadTime: inputUpload.trailUploadTime,
+        hostToGpuRandomUploadTime: inputUpload.randomUploadTime,
+        hostToGpuObstacleUploadTime: inputUpload.obstacleUploadTime,
+        gpuToHostTime,
+        gpuToHostAgentReadbackTime,
+        gpuToHostTrailReadbackTime,
+        gpuToHostLogReadbackTime,
+        queueSubmitTime
       }
     };
   }
   // --- Internals ---
   syncAgentsToGPU(device, agents) {
+    const uploadStart = performance.now();
     this.agentCount = agents.length;
-    if (this.agentCount === 0) return;
+    if (this.agentCount === 0) return 0;
     const data = new Float32Array(this.agentCount * COMPONENTS_PER_AGENT);
     for (let i = 0; i < this.agentCount; i++) {
       const a = agents[i];
@@ -4170,8 +4223,13 @@ var WebGPU = class {
       data[base + 5] = a.species || 0;
     }
     this.gpuHelper.writeBuffer(device, this.agentStorageBuffer, data);
+    return performance.now() - uploadStart;
   }
   ensureAndWriteInputs(device, inputs) {
+    let uniformUploadTime = 0;
+    let trailUploadTime = 0;
+    let randomUploadTime = 0;
+    let obstacleUploadTime = 0;
     const bufferInputs = ["trailMap", "randomValues", "obstacles"];
     const obstacleCount = this.hasObstacles ? Array.isArray(inputs.obstacles) ? inputs.obstacles.length : 0 : 0;
     const values = this.inputsExpected.filter((n) => !bufferInputs.includes(n)).map((n) => {
@@ -4194,6 +4252,7 @@ var WebGPU = class {
       this.inputUniformCapacity = aligned;
     }
     const f32 = new Float32Array(values);
+    const uniformUploadStart = performance.now();
     device.queue.writeBuffer(
       this.inputUniformBuffer,
       0,
@@ -4201,6 +4260,7 @@ var WebGPU = class {
       f32.byteOffset,
       byteLen
     );
+    uniformUploadTime += performance.now() - uniformUploadStart;
     if (this.hasTrailMap && inputs.trailMap) {
       const trailMap = inputs.trailMap;
       const size = trailMap.byteLength;
@@ -4231,6 +4291,7 @@ var WebGPU = class {
         this.trailMapGPUSeeded = false;
       }
       if (!this.trailMapGPUSeeded) {
+        const trailUploadStart = performance.now();
         device.queue.writeBuffer(
           this.trailMapBuffer,
           0,
@@ -4241,6 +4302,7 @@ var WebGPU = class {
         const zeros = new Float32Array(trailMap.length);
         device.queue.writeBuffer(this.trailMapBuffer2, 0, zeros);
         device.queue.writeBuffer(this.trailMapDeposits, 0, zeros);
+        trailUploadTime += performance.now() - trailUploadStart;
         this.trailMapGPUSeeded = true;
         this.logger.info("Trail map seeded to GPU (first frame only)");
       }
@@ -4258,6 +4320,7 @@ var WebGPU = class {
         );
         this.randomValuesCapacity = size;
       }
+      const randomUploadStart = performance.now();
       device.queue.writeBuffer(
         this.randomValuesBuffer,
         0,
@@ -4265,6 +4328,7 @@ var WebGPU = class {
         randomValues.byteOffset,
         randomValues.byteLength
       );
+      randomUploadTime += performance.now() - randomUploadStart;
     }
     if (this.hasObstacles) {
       const obstacleArray = Array.isArray(inputs.obstacles) ? inputs.obstacles : [];
@@ -4288,6 +4352,7 @@ var WebGPU = class {
         obstacleData[i * 4 + 2] = ob.w;
         obstacleData[i * 4 + 3] = ob.h;
       }
+      const obstacleUploadStart = performance.now();
       device.queue.writeBuffer(
         this.obstaclesBuffer,
         0,
@@ -4295,7 +4360,15 @@ var WebGPU = class {
         obstacleData.byteOffset,
         obstacleData.byteLength
       );
+      obstacleUploadTime += performance.now() - obstacleUploadStart;
     }
+    return {
+      uniformUploadTime,
+      trailUploadTime,
+      randomUploadTime,
+      obstacleUploadTime,
+      totalInputUploadTime: uniformUploadTime + trailUploadTime + randomUploadTime + obstacleUploadTime
+    };
   }
   ensureTrailReadbackBuffer(device, size) {
     if (!this.stagingTrailReadbackBuffer || this.stagingTrailReadbackCapacity < size) {
@@ -4346,6 +4419,35 @@ var WebGPU = class {
     }
     return [dispatchX, dispatchY, dispatchZ];
   }
+  /**
+   * Approximate allocated GPU memory footprint in bytes.
+   *
+   * This sums the currently allocated buffer capacities managed by this
+   * compute backend (not total driver/device memory usage).
+   */
+  getMemoryFootprintBytes() {
+    const breakdown = {
+      agentStorage: this.agentStorageCapacity,
+      agentsRead: this.agentStorageCapacity,
+      stagingReadback: this.agentStorageCapacity,
+      agentVertex: this.agentVertexCapacity,
+      agentLogs: this.agentLogCapacity,
+      stagingLogs: this.agentLogCapacity,
+      stagingTrailReadback: this.stagingTrailReadbackCapacity,
+      inputUniform: this.inputUniformCapacity,
+      diffuseUniform: this.diffuseUniformBuffer ? 16 : 0,
+      trailMapRead: this.trailMapCapacity,
+      trailMapWrite: this.trailMapCapacity,
+      trailMapDeposits: this.trailMapCapacity,
+      randomValues: this.randomValuesCapacity,
+      obstacles: this.obstaclesCapacity
+    };
+    const totalBytes = Object.values(breakdown).reduce(
+      (total, value) => total + value,
+      0
+    );
+    return { totalBytes, breakdown };
+  }
   destroy() {
     this.agentStorageBuffer?.destroy();
     this.agentsReadBuffer?.destroy();
@@ -4389,6 +4491,8 @@ var WebGPU = class {
     this.obstaclesCapacity = 0;
     this.stagingTrailReadbackCapacity = 0;
     this.agentVertexCapacity = 0;
+    this.agentStorageCapacity = 0;
+    this.agentLogCapacity = 0;
   }
 };
 
@@ -4401,10 +4505,13 @@ var getWabtModule = async () => {
   }
   return wabtModulePromise;
 };
-var compileWATtoWASM = async (watCode, logger) => {
+var compileWATtoWASM = async (watCode, logger, options = {}) => {
   try {
     const wabtModule = await getWabtModule();
-    const parsed = wabtModule.parseWat("dsl_module.wat", watCode);
+    const parseWat = wabtModule.parseWat;
+    const parsed = parseWat("dsl_module.wat", watCode, {
+      simd: options.simd === true
+    });
     try {
       const { buffer } = parsed.toBinary({ write_debug_names: true });
       return WebAssembly.compile(new Uint8Array(buffer));
@@ -4423,19 +4530,153 @@ var f32PerAgent = bytesPerAgent / 4;
 var basePtr = 0;
 var baseF32 = basePtr >>> 2;
 var wasmPageSize = 64 * 1024;
+var SIMD_MEMCPY_EXPORT = "simd_memcpy";
+var SIMD_WASM_PROBE = new Uint8Array([
+  0,
+  97,
+  115,
+  109,
+  1,
+  0,
+  0,
+  0,
+  1,
+  4,
+  1,
+  96,
+  0,
+  0,
+  3,
+  2,
+  1,
+  0,
+  10,
+  23,
+  1,
+  21,
+  0,
+  253,
+  12,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  26,
+  11
+]);
+var SIMD_MEMCPY_WAT_HELPER = `
+(func (export "simd_memcpy") (param $dst i32) (param $src i32) (param $bytes i32)
+  (local $i i32)
+  (local.set $i (i32.const 0))
+
+  (block $simd_done
+    (loop $simd_loop
+      (br_if $simd_done (i32.gt_u (i32.add (local.get $i) (i32.const 16)) (local.get $bytes)))
+      (v128.store
+        (i32.add (local.get $dst) (local.get $i))
+        (v128.load (i32.add (local.get $src) (local.get $i)))
+      )
+      (local.set $i (i32.add (local.get $i) (i32.const 16)))
+      (br $simd_loop)
+    )
+  )
+
+  (block $tail_done
+    (loop $tail_loop
+      (br_if $tail_done (i32.ge_u (local.get $i) (local.get $bytes)))
+      (i32.store8
+        (i32.add (local.get $dst) (local.get $i))
+        (i32.load8_u (i32.add (local.get $src) (local.get $i)))
+      )
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $tail_loop)
+    )
+  )
+)
+`;
+var supportsWasmSIMD = () => {
+  if (typeof WebAssembly === "undefined") {
+    return false;
+  }
+  if (typeof WebAssembly.validate !== "function") {
+    return false;
+  }
+  try {
+    const probe = new Uint8Array(SIMD_WASM_PROBE.byteLength);
+    probe.set(SIMD_WASM_PROBE);
+    return WebAssembly.validate(probe);
+  } catch {
+    return false;
+  }
+};
+var withSimdMemcpyHelper = (watCode) => {
+  if (watCode.includes(`(export "${SIMD_MEMCPY_EXPORT}")`)) {
+    return watCode;
+  }
+  const moduleEnd = watCode.lastIndexOf(")");
+  if (moduleEnd === -1) {
+    throw new Error("Invalid WAT module: missing closing ')' for SIMD helper injection.");
+  }
+  return `${watCode.slice(0, moduleEnd)}
+${SIMD_MEMCPY_WAT_HELPER}
+${watCode.slice(moduleEnd)}`;
+};
 var WebAssemblyCompute = class {
-  constructor(watCode, agentCount) {
+  constructor(watCode, agentCount, options = {}) {
     this.memory = void 0;
     this.f32 = void 0;
     this.exports = void 0;
     this.stepAll = void 0;
+    this.simdMemcpy = void 0;
+    this.effectiveExecutionMode = "scalar";
+    this.simdSupported = false;
     this.logger = new Logger("WebAssemblyCompute");
     this.agentCount = agentCount;
     this.watCode = watCode;
+    this.requestedExecutionMode = options.executionMode ?? "auto";
   }
   /** Compile WAT, create WASM instance, and bind the `step_all` export. */
   async init() {
-    const wasmModule = await compileWATtoWASM(this.watCode, this.logger);
+    this.simdSupported = supportsWasmSIMD();
+    if (this.requestedExecutionMode === "simd" && !this.simdSupported) {
+      throw new Error(
+        "WASM SIMD execution mode requested, but this runtime does not support WebAssembly SIMD."
+      );
+    }
+    const prefersSimd = this.requestedExecutionMode === "simd" || this.requestedExecutionMode === "auto" && this.simdSupported;
+    let effectiveMode = prefersSimd ? "simd" : "scalar";
+    let watToCompile = effectiveMode === "simd" ? withSimdMemcpyHelper(this.watCode) : this.watCode;
+    let wasmModule;
+    try {
+      wasmModule = await compileWATtoWASM(watToCompile, this.logger, {
+        simd: effectiveMode === "simd"
+      });
+    } catch (error) {
+      if (effectiveMode === "simd" && this.requestedExecutionMode === "auto") {
+        this.logger.warn(
+          `SIMD WASM compile failed, falling back to scalar mode: ${error instanceof Error ? error.message : String(error)}`
+        );
+        effectiveMode = "scalar";
+        watToCompile = this.watCode;
+        wasmModule = await compileWATtoWASM(watToCompile, this.logger, {
+          simd: false
+        });
+      } else {
+        throw error;
+      }
+    }
     const bytesNeeded = this.agentCount * bytesPerAgent;
     const initialPages = Math.ceil(bytesNeeded / wasmPageSize) + 1;
     this.memory = new WebAssembly.Memory({ initial: initialPages });
@@ -4456,7 +4697,32 @@ var WebAssemblyCompute = class {
       throw new Error("WASM export step_all is missing or not callable.");
     }
     this.stepAll = stepAll;
+    const simdMemcpyExport = this.exports[SIMD_MEMCPY_EXPORT];
+    if (effectiveMode === "simd") {
+      if (typeof simdMemcpyExport !== "function") {
+        if (this.requestedExecutionMode === "auto") {
+          this.logger.warn(
+            "SIMD memcpy export missing in WASM module; falling back to scalar mode."
+          );
+          this.simdMemcpy = void 0;
+          this.effectiveExecutionMode = "scalar";
+        } else {
+          throw new Error(
+            "WASM SIMD mode requested, but SIMD memcpy export is unavailable."
+          );
+        }
+      } else {
+        this.simdMemcpy = simdMemcpyExport;
+        this.effectiveExecutionMode = "simd";
+      }
+    } else {
+      this.simdMemcpy = void 0;
+      this.effectiveExecutionMode = "scalar";
+    }
     this.f32 = new Float32Array(this.memory.buffer);
+    this.logger.info(
+      `Initialized in ${this.effectiveExecutionMode} mode (requested: ${this.requestedExecutionMode}, simdSupported: ${this.simdSupported}).`
+    );
   }
   /**
    * Run a single compute step across all agents.
@@ -4475,7 +4741,15 @@ var WebAssemblyCompute = class {
     const f32 = this.f32;
     const packedAgents = this.packAgents(agents);
     f32.set(packedAgents, baseF32);
-    f32.set(packedAgents, layout.agentsReadPtr >>> 2);
+    let simdMemcpyTime = 0;
+    const packedByteLength = packedAgents.byteLength;
+    if (this.effectiveExecutionMode === "simd" && this.simdMemcpy && layout.agentsReadPtr > 0 && packedByteLength > 0) {
+      const simdCopyStart = performance.now();
+      this.simdMemcpy(layout.agentsReadPtr, basePtr, packedByteLength);
+      simdMemcpyTime = performance.now() - simdCopyStart;
+    } else {
+      f32.set(packedAgents, layout.agentsReadPtr >>> 2);
+    }
     this.setGlobal("agentsReadPtr", layout.agentsReadPtr);
     if (inputs.trailMapRead && layout.trailMapReadPtr > 0) {
       f32.set(
@@ -4537,16 +4811,36 @@ var WebAssemblyCompute = class {
       performance: {
         writeTime: writeEnd - writeStart,
         computeTime: computeEnd - computeStart,
-        readTime: readEnd - readStart
+        readTime: readEnd - readStart,
+        simdMemcpyTime
       }
     };
   }
   /** Release all WASM resources. */
   destroy() {
     this.stepAll = void 0;
+    this.simdMemcpy = void 0;
     this.exports = void 0;
     this.f32 = void 0;
     this.memory = void 0;
+  }
+  /**
+   * Current linear-memory allocation size in bytes.
+   *
+   * Represents the active WebAssembly memory footprint for this backend.
+   */
+  getMemoryFootprintBytes() {
+    return this.memory?.buffer.byteLength ?? 0;
+  }
+  /**
+   * Execution mode metadata used for benchmark reporting.
+   */
+  getExecutionInfo() {
+    return {
+      requestedMode: this.requestedExecutionMode,
+      effectiveMode: this.effectiveExecutionMode,
+      simdSupported: this.simdSupported
+    };
   }
   computeLayout(inputs, activeAgentCount) {
     const agentsWriteEnd = activeAgentCount * bytesPerAgent;
@@ -4641,7 +4935,7 @@ var WebAssemblyCompute = class {
 
 // src/compute/compute.ts
 var ComputeEngine = class {
-  constructor(compilationResult, performanceMonitor, agentCount, workerCount) {
+  constructor(compilationResult, performanceMonitor, agentCount, workerCount, wasmExecutionMode = "auto") {
     this.agentCount = 0;
     this.gpuDevice = null;
     this.gpuRenderState = void 0;
@@ -4653,7 +4947,10 @@ var ComputeEngine = class {
     this.compilationResult = compilationResult;
     this.PerformanceMonitor = performanceMonitor;
     this.workerCount = workerCount;
+    this.wasmExecutionMode = wasmExecutionMode;
+    const jsCompileStart = performance.now();
     this.agentFunction = this.buildAgentFunction();
+    this.compileTimes["JavaScript"] = performance.now() - jsCompileStart;
     this.agentCount = agentCount;
     this.logger = new Logger("ComputeEngine", "purple");
     this.logger.log("ComputeEngine initialized");
@@ -4787,7 +5084,8 @@ var ComputeEngine = class {
       const start = performance.now();
       this._WebAssembly = new WebAssemblyCompute(
         this.compilationResult.WASMCode,
-        this.agentCount
+        this.agentCount,
+        { executionMode: this.wasmExecutionMode }
       );
       this._WebAssemblyInitPromise = this._WebAssembly.init();
       await this._WebAssemblyInitPromise;
@@ -4858,6 +5156,8 @@ var ComputeEngine = class {
       agents,
       inputs
     );
+    const wasmExecInfo = instance.getExecutionInfo();
+    const memoryFootprint = instance.getMemoryFootprintBytes();
     this.logPerformance("WebAssembly", updatedAgents.length, {
       setupTime: wasmPerf.writeTime,
       computeTime: wasmPerf.computeTime,
@@ -4865,7 +5165,16 @@ var ComputeEngine = class {
       specificStats: {
         "Memory Write": wasmPerf.writeTime,
         "WASM Execution": wasmPerf.computeTime,
-        "Memory Read": wasmPerf.readTime
+        "Memory Read": wasmPerf.readTime,
+        "WASM SIMD Memcpy": wasmPerf.simdMemcpyTime,
+        "WASM SIMD Requested": wasmExecInfo.requestedMode === "simd" ? 1 : wasmExecInfo.requestedMode === "auto" ? 0.5 : 0,
+        "WASM SIMD Active": wasmExecInfo.effectiveMode === "simd" ? 1 : 0,
+        "WASM SIMD Supported": wasmExecInfo.simdSupported ? 1 : 0,
+        "Linear Memory (bytes)": memoryFootprint
+      },
+      memoryStats: {
+        methodMemoryFootprintBytes: memoryFootprint,
+        methodMemoryFootprintType: "exact"
       }
     });
     return updatedAgents;
@@ -4876,6 +5185,7 @@ var ComputeEngine = class {
     const result = shouldReadback ? await instance.runGPUReadback(agents, inputs) : await instance.runGPU(agents, inputs);
     const { updatedAgents, renderResources, performance: gpuPerf } = result;
     const nextAgents = updatedAgents ?? agents;
+    const gpuMemory = instance.getMemoryFootprintBytes();
     this.logPerformance("WebGPU", nextAgents.length, {
       setupTime: gpuPerf.setupTime,
       computeTime: gpuPerf.dispatchTime,
@@ -4883,7 +5193,29 @@ var ComputeEngine = class {
       specificStats: {
         "Buffer Setup": gpuPerf.setupTime,
         "GPU Dispatch": gpuPerf.dispatchTime,
-        Readback: gpuPerf.readbackTime
+        Readback: gpuPerf.readbackTime,
+        "Host->GPU": gpuPerf.hostToGpuTime,
+        "GPU->Host": gpuPerf.gpuToHostTime,
+        "Queue Submit": gpuPerf.queueSubmitTime,
+        "GPU Memory (bytes)": gpuMemory.totalBytes
+      },
+      bridgeTimings: {
+        hostToGpuTime: gpuPerf.hostToGpuTime,
+        hostToGpuAgentUploadTime: gpuPerf.hostToGpuAgentUploadTime,
+        hostToGpuInputUploadTime: gpuPerf.hostToGpuInputUploadTime,
+        hostToGpuUniformUploadTime: gpuPerf.hostToGpuUniformUploadTime,
+        hostToGpuTrailUploadTime: gpuPerf.hostToGpuTrailUploadTime,
+        hostToGpuRandomUploadTime: gpuPerf.hostToGpuRandomUploadTime,
+        hostToGpuObstacleUploadTime: gpuPerf.hostToGpuObstacleUploadTime,
+        gpuToHostTime: gpuPerf.gpuToHostTime,
+        gpuToHostAgentReadbackTime: gpuPerf.gpuToHostAgentReadbackTime,
+        gpuToHostTrailReadbackTime: gpuPerf.gpuToHostTrailReadbackTime,
+        gpuToHostLogReadbackTime: gpuPerf.gpuToHostLogReadbackTime,
+        queueSubmitTime: gpuPerf.queueSubmitTime
+      },
+      memoryStats: {
+        methodMemoryFootprintBytes: gpuMemory.totalBytes,
+        methodMemoryFootprintType: "exact"
       }
     });
     if (renderResources) {
@@ -4904,6 +5236,11 @@ var ComputeEngine = class {
         writeBuffer[i] += depositDeltas[i];
       }
     }
+    const memoryEstimate = instance.estimateMemoryFootprintBytes(
+      updatedAgents.length,
+      inputs
+    );
+    const workers = instance.getWorkerCount();
     this.logPerformance("WebWorkers", updatedAgents.length, {
       setupTime: workerPerf.serializationTime,
       computeTime: workerPerf.workerTime,
@@ -4911,7 +5248,13 @@ var ComputeEngine = class {
       specificStats: {
         Serialization: workerPerf.serializationTime,
         "Worker Compute": workerPerf.workerTime,
-        Deserialization: workerPerf.deserializationTime
+        Deserialization: workerPerf.deserializationTime,
+        Workers: workers,
+        "Estimated Transfer Footprint (bytes)": memoryEstimate
+      },
+      memoryStats: {
+        methodMemoryFootprintBytes: memoryEstimate,
+        methodMemoryFootprintType: "estimate"
       }
     });
     return updatedAgents;
@@ -4923,15 +5266,31 @@ var ComputeEngine = class {
     );
     const computeEnd = performance.now();
     const computeTime = computeEnd - computeStart;
+    const memoryEstimate = this.estimateMainThreadMemoryBytes(
+      updatedAgents.length,
+      inputs
+    );
     this.logPerformance("JavaScript", updatedAgents.length, {
       setupTime: 0,
       computeTime,
       readbackTime: 0,
       specificStats: {
-        "JS Execution": computeTime
+        "JS Execution": computeTime,
+        "Estimated State Footprint (bytes)": memoryEstimate
+      },
+      memoryStats: {
+        methodMemoryFootprintBytes: memoryEstimate,
+        methodMemoryFootprintType: "estimate"
       }
     });
     return updatedAgents;
+  }
+  estimateMainThreadMemoryBytes(agentCount, inputs) {
+    const agentsBytes = Math.max(0, Math.floor(agentCount)) * 6 * 8;
+    const trailBytes = inputs.trailMapRead instanceof Float32Array ? inputs.trailMapRead.byteLength : inputs.trailMap instanceof Float32Array ? inputs.trailMap.byteLength : 0;
+    const randomBytes = inputs.randomValues instanceof Float32Array ? inputs.randomValues.byteLength : 0;
+    const obstacleBytes = Array.isArray(inputs.obstacles) ? inputs.obstacles.length * 4 * 8 : 0;
+    return agentsBytes + trailBytes + randomBytes + obstacleBytes;
   }
   logPerformance(method, agentCount, details) {
     const compileTime = this.compileTimes[method];
@@ -4949,7 +5308,9 @@ var ComputeEngine = class {
       computeTime: details.computeTime,
       readbackTime: details.readbackTime,
       compileTime,
-      specificStats: details.specificStats
+      specificStats: details.specificStats,
+      bridgeTimings: details.bridgeTimings,
+      memoryStats: details.memoryStats
     });
   }
   /** Release all backend instances and buffers. */
@@ -5158,6 +5519,10 @@ var Renderer = class {
     this.gpuAgentBuffer = null;
     this.gpuAgentBufferSize = 0;
     this.gpuPipelineDevice = null;
+    this.gpuSpeciesPaletteBuffer = null;
+    this.gpuSpeciesPaletteBufferSize = 0;
+    this.gpuTrailUniformBuffer = null;
+    this.gpuTrailUniformBufferSize = 0;
     this.gpuManualTrailBuffer = null;
     this.gpuManualTrailBufferSize = 0;
     this.gpuTrailPipeline = null;
@@ -5531,6 +5896,7 @@ var Renderer = class {
       );
     }
     if (!this.gpuAgentBuffer || this.gpuAgentBufferSize < data.byteLength) {
+      this.gpuAgentBuffer?.destroy();
       this.gpuAgentBuffer = this.gpuHelper.createBuffer(
         device,
         data,
@@ -5560,6 +5926,7 @@ var Renderer = class {
   prepareManualTrailBuffer(device, trailMap) {
     const byteSize = trailMap.byteLength;
     if (!this.gpuManualTrailBuffer || this.gpuManualTrailBufferSize < byteSize) {
+      this.gpuManualTrailBuffer?.destroy();
       this.gpuManualTrailBuffer = this.gpuHelper.createBuffer(
         device,
         trailMap,
@@ -5595,6 +5962,7 @@ var Renderer = class {
       0
     ]);
     if (!this.gpuUniformBuffer || this.gpuUniformBufferSize < uniformData.byteLength) {
+      this.gpuUniformBuffer?.destroy();
       this.gpuUniformBuffer = this.gpuHelper.createBuffer(
         device,
         null,
@@ -5614,16 +5982,26 @@ var Renderer = class {
       paletteData[i * 4 + 2] = b2;
       paletteData[i * 4 + 3] = 1;
     }
-    const paletteBuffer = this.gpuHelper.createBuffer(
+    if (!this.gpuSpeciesPaletteBuffer || this.gpuSpeciesPaletteBufferSize < paletteData.byteLength) {
+      this.gpuSpeciesPaletteBuffer?.destroy();
+      this.gpuSpeciesPaletteBuffer = this.gpuHelper.createBuffer(
+        device,
+        null,
+        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        paletteData.byteLength
+      );
+      this.gpuSpeciesPaletteBufferSize = paletteData.byteLength;
+    }
+    this.gpuHelper.writeBuffer(
       device,
-      paletteData,
-      GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      this.gpuSpeciesPaletteBuffer,
+      paletteData
     );
     const bindGroup = device.createBindGroup({
       layout: this.gpuBindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: this.gpuUniformBuffer } },
-        { binding: 1, resource: { buffer: paletteBuffer } }
+        { binding: 1, resource: { buffer: this.gpuSpeciesPaletteBuffer } }
       ]
     });
     const bgRgb = hexToRgb(this.appearance.backgroundColor);
@@ -5650,16 +6028,26 @@ var Renderer = class {
         b2,
         this.appearance.trailOpacity ?? 1
       ]);
-      const trailUniformBuffer = this.gpuHelper.createBuffer(
+      if (!this.gpuTrailUniformBuffer || this.gpuTrailUniformBufferSize < trailUniformData.byteLength) {
+        this.gpuTrailUniformBuffer?.destroy();
+        this.gpuTrailUniformBuffer = this.gpuHelper.createBuffer(
+          device,
+          null,
+          GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          trailUniformData.byteLength
+        );
+        this.gpuTrailUniformBufferSize = trailUniformData.byteLength;
+      }
+      this.gpuHelper.writeBuffer(
         device,
-        trailUniformData,
-        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        this.gpuTrailUniformBuffer,
+        trailUniformData
       );
       const trailBindGroup = device.createBindGroup({
         layout: this.gpuTrailBindGroupLayout,
         entries: [
           { binding: 0, resource: { buffer: activeTrailBuffer } },
-          { binding: 1, resource: { buffer: trailUniformBuffer } }
+          { binding: 1, resource: { buffer: this.gpuTrailUniformBuffer } }
         ]
       });
       pass.setPipeline(this.gpuTrailPipeline);
@@ -5700,6 +6088,12 @@ var Renderer = class {
    * @internal
    */
   resetGPUState() {
+    this.gpuQuadBuffer?.destroy();
+    this.gpuUniformBuffer?.destroy();
+    this.gpuAgentBuffer?.destroy();
+    this.gpuManualTrailBuffer?.destroy();
+    this.gpuSpeciesPaletteBuffer?.destroy();
+    this.gpuTrailUniformBuffer?.destroy();
     this.gpuPipeline = null;
     this.gpuPipelineDevice = null;
     this.gpuBindGroupLayout = null;
@@ -5712,6 +6106,10 @@ var Renderer = class {
     this.gpuAgentBufferSize = 0;
     this.gpuManualTrailBuffer = null;
     this.gpuManualTrailBufferSize = 0;
+    this.gpuSpeciesPaletteBuffer = null;
+    this.gpuSpeciesPaletteBufferSize = 0;
+    this.gpuTrailUniformBuffer = null;
+    this.gpuTrailUniformBufferSize = 0;
   }
 };
 
@@ -5795,12 +6193,123 @@ var collectGpuMetrics = async () => {
     return void 0;
   }
 };
+var SIMD_WASM_PROBE2 = new Uint8Array([
+  0,
+  97,
+  115,
+  109,
+  1,
+  0,
+  0,
+  0,
+  1,
+  4,
+  1,
+  96,
+  0,
+  0,
+  3,
+  2,
+  1,
+  0,
+  10,
+  23,
+  1,
+  21,
+  0,
+  253,
+  12,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  26,
+  11
+]);
+var THREADS_WASM_PROBE = new Uint8Array([
+  0,
+  97,
+  115,
+  109,
+  1,
+  0,
+  0,
+  0,
+  5,
+  4,
+  1,
+  3,
+  1,
+  1
+]);
+var supportsWasmFeature = (bytes) => {
+  if (typeof WebAssembly === "undefined") {
+    return false;
+  }
+  if (typeof WebAssembly.validate !== "function") {
+    return false;
+  }
+  try {
+    const probe = new Uint8Array(bytes.byteLength);
+    probe.set(bytes);
+    return WebAssembly.validate(probe);
+  } catch {
+    return false;
+  }
+};
+var collectWasmMetrics = () => {
+  const sharedArrayBufferAvailable = typeof SharedArrayBuffer !== "undefined" && typeof Atomics !== "undefined" && typeof Uint8Array !== "undefined";
+  return {
+    simdSupported: supportsWasmFeature(SIMD_WASM_PROBE2),
+    threadsSupported: sharedArrayBufferAvailable && supportsWasmFeature(THREADS_WASM_PROBE),
+    sharedArrayBufferAvailable
+  };
+};
+var collectBatteryMetrics = async () => {
+  if (!isBrowserRuntime()) {
+    return void 0;
+  }
+  const navWithBattery = navigator;
+  if (typeof navWithBattery.getBattery !== "function") {
+    return { supported: false };
+  }
+  try {
+    const battery = await navWithBattery.getBattery();
+    return {
+      supported: true,
+      level: battery.level,
+      charging: battery.charging,
+      chargingTime: battery.chargingTime,
+      dischargingTime: battery.dischargingTime
+    };
+  } catch {
+    return { supported: false };
+  }
+};
 var collectRuntimeMetrics = async () => {
   const base = isBrowserRuntime() ? collectBrowserMetrics() : collectNodeMetrics();
-  const gpu = await collectGpuMetrics();
+  const [gpu, battery] = await Promise.all([
+    collectGpuMetrics(),
+    collectBatteryMetrics()
+  ]);
+  const wasm = collectWasmMetrics();
   return {
     ...base,
-    gpu
+    gpu,
+    wasm,
+    battery
   };
 };
 
@@ -5811,8 +6320,16 @@ var DEFAULT_TRACKING_OPTIONS = {
   captureAgentStates: true,
   captureLogs: true,
   captureDeviceMetrics: true,
-  captureRawArrays: false
+  captureRawArrays: false,
+  captureRuntimeSamples: false,
+  captureJsHeapSamples: true,
+  captureBatteryStatus: false,
+  captureThermalCanary: false,
+  runtimeSampleIntervalMs: 1e3
 };
+var MIN_RUNTIME_SAMPLE_INTERVAL_MS = 100;
+var MAX_RUNTIME_SAMPLE_INTERVAL_MS = 6e4;
+var DEFAULT_THROTTLING_THRESHOLD_MS = 120;
 var mapLogLevel = (level) => {
   if (level === 1 /* Error */) return "error";
   if (level === 2 /* Warning */) return "warning";
@@ -5875,6 +6392,72 @@ var sanitizeInputValue = (value, keepArrays = false) => {
   }
   return String(value);
 };
+var sanitizeInputSnapshotEntry = (key, value, keepArrays) => {
+  if (key === "agents" && Array.isArray(value) && !keepArrays) {
+    return {
+      type: "AgentArray",
+      length: value.length
+    };
+  }
+  return sanitizeInputValue(value, keepArrays);
+};
+var detectWasmCodeFeatures = (compilationResult) => {
+  const wat = compilationResult.WASMCode ?? "";
+  const simdInstructionsPresent = /\bv128\b|\bi(8|16|32|64)x(8|16|4|2)\b/.test(
+    wat
+  );
+  const threadsInstructionsPresent = /\batomic\./.test(wat) || /\bmemory\.atomic\./.test(wat);
+  return {
+    simdInstructionsPresent,
+    threadsInstructionsPresent
+  };
+};
+var clampSampleInterval = (value) => {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_TRACKING_OPTIONS.runtimeSampleIntervalMs;
+  }
+  return Math.min(
+    MAX_RUNTIME_SAMPLE_INTERVAL_MS,
+    Math.max(MIN_RUNTIME_SAMPLE_INTERVAL_MS, Math.round(value))
+  );
+};
+var percentile = (values, p) => {
+  if (values.length === 0) return 0;
+  if (values.length === 1) return values[0];
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = (sorted.length - 1) * p;
+  const lower = Math.floor(idx);
+  const upper = Math.ceil(idx);
+  if (lower === upper) return sorted[lower];
+  const weight = idx - lower;
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+};
+var distribution = (values) => {
+  if (values.length === 0) {
+    return {
+      min: 0,
+      max: 0,
+      average: 0,
+      stdDev: 0,
+      p50: 0,
+      p95: 0,
+      p99: 0
+    };
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - average) ** 2, 0) / values.length;
+  return {
+    min,
+    max,
+    average,
+    stdDev: Math.sqrt(variance),
+    p50: percentile(values, 0.5),
+    p95: percentile(values, 0.95),
+    p99: percentile(values, 0.99)
+  };
+};
 var SimulationTracker = class {
   /**
    * Create a new tracker for a simulation run.
@@ -5886,7 +6469,13 @@ var SimulationTracker = class {
     this.frames = [];
     this.logs = [];
     this.errors = [];
+    this.runtimeSamples = [];
+    this.latestFrameNumber = -1;
+    this.finalized = false;
     this.options = { ...DEFAULT_TRACKING_OPTIONS, ...params.tracking ?? {} };
+    this.runtimeSampleIntervalMs = clampSampleInterval(
+      this.options.runtimeSampleIntervalMs
+    );
     this.run = {
       runId: generateRunId(),
       startedAt: Date.now(),
@@ -5903,7 +6492,8 @@ var SimulationTracker = class {
         requiredInputs: [...params.compilationResult.requiredInputs],
         definedInputs: params.compilationResult.definedInputs.map((def) => ({
           ...def
-        }))
+        })),
+        wasmCodeFeatures: detectWasmCodeFeatures(params.compilationResult)
       },
       metadata: params.metadata
     };
@@ -5919,6 +6509,7 @@ var SimulationTracker = class {
       };
       Logger.addListener(this.logListener);
     }
+    this.startRuntimeSampling();
   }
   /**
    * Asynchronously collect runtime device, browser, and GPU metrics.
@@ -5929,12 +6520,98 @@ var SimulationTracker = class {
     if (!this.options.enabled || !this.options.captureDeviceMetrics) {
       return;
     }
-    try {
-      this.environment = await collectRuntimeMetrics();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Failed to collect runtime metrics: ${message}`);
+    if (!this.environmentMetricsPromise) {
+      this.environmentMetricsPromise = (async () => {
+        try {
+          this.environment = await collectRuntimeMetrics();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(`Failed to collect runtime metrics: ${message}`);
+        }
+      })();
     }
+    await this.environmentMetricsPromise;
+  }
+  startRuntimeSampling() {
+    if (!this.options.enabled || !this.options.captureRuntimeSamples) {
+      return;
+    }
+    if (this.runtimeSampler) {
+      clearInterval(this.runtimeSampler);
+    }
+    this.canaryExpectedTimestampMs = performance.now() + this.runtimeSampleIntervalMs;
+    this.runtimeSampler = setInterval(() => {
+      void this.captureRuntimeSample();
+    }, this.runtimeSampleIntervalMs);
+    void this.captureRuntimeSample();
+  }
+  stopRuntimeSampling() {
+    if (this.runtimeSampler) {
+      clearInterval(this.runtimeSampler);
+      this.runtimeSampler = void 0;
+    }
+  }
+  getBatteryManager() {
+    if (this.batteryManagerPromise) {
+      return this.batteryManagerPromise;
+    }
+    this.batteryManagerPromise = (async () => {
+      if (typeof navigator === "undefined") return null;
+      const nav = navigator;
+      if (typeof nav.getBattery !== "function") {
+        return null;
+      }
+      try {
+        return await nav.getBattery();
+      } catch {
+        return null;
+      }
+    })();
+    return this.batteryManagerPromise;
+  }
+  async captureRuntimeSample() {
+    if (!this.options.enabled || !this.options.captureRuntimeSamples) {
+      return;
+    }
+    const nowDate = Date.now();
+    const sample = {
+      timestamp: nowDate,
+      elapsedMs: Math.max(0, nowDate - this.run.startedAt),
+      frameNumber: this.latestFrameNumber
+    };
+    if (this.options.captureJsHeapSamples && typeof performance !== "undefined") {
+      const perf = performance;
+      if (perf.memory) {
+        sample.jsHeap = {
+          jsHeapSizeLimit: perf.memory.jsHeapSizeLimit,
+          totalJSHeapSize: perf.memory.totalJSHeapSize,
+          usedJSHeapSize: perf.memory.usedJSHeapSize
+        };
+      }
+    }
+    if (this.options.captureBatteryStatus) {
+      const batteryManager = await this.getBatteryManager();
+      sample.battery = batteryManager ? {
+        supported: true,
+        level: batteryManager.level,
+        charging: batteryManager.charging,
+        chargingTime: batteryManager.chargingTime,
+        dischargingTime: batteryManager.dischargingTime
+      } : { supported: false };
+    }
+    if (this.options.captureThermalCanary) {
+      const actualTimestampMs = performance.now();
+      const expectedTimestampMs = this.canaryExpectedTimestampMs ?? actualTimestampMs + this.runtimeSampleIntervalMs;
+      const driftMs = actualTimestampMs - expectedTimestampMs;
+      sample.thermalCanary = {
+        intervalMs: this.runtimeSampleIntervalMs,
+        expectedTimestampMs,
+        actualTimestampMs,
+        driftMs
+      };
+      this.canaryExpectedTimestampMs = expectedTimestampMs + this.runtimeSampleIntervalMs;
+    }
+    this.runtimeSamples.push(sample);
   }
   /**
    * Record data for a completed simulation frame.
@@ -5945,16 +6622,22 @@ var SimulationTracker = class {
     if (!this.options.enabled) {
       return;
     }
+    this.latestFrameNumber = params.frameNumber;
     this.frames.push({
       frameNumber: params.frameNumber,
       timestamp: Date.now(),
       method: params.method,
       renderMode: params.renderMode,
+      inputKeyCount: Object.keys(params.inputs ?? {}).length,
       agentPositions: this.options.captureAgentStates ? cloneAgents(params.agents) : void 0,
       inputSnapshot: this.options.captureFrameInputs ? Object.fromEntries(
         Object.entries(params.inputs ?? {}).map(([key, value]) => [
           key,
-          sanitizeInputValue(value, this.options.captureRawArrays)
+          sanitizeInputSnapshotEntry(
+            key,
+            value,
+            this.options.captureRawArrays
+          )
         ])
       ) : void 0,
       performance: params.performance ? { ...params.performance } : void 0
@@ -5986,10 +6669,30 @@ var SimulationTracker = class {
    * Mark the simulation run as complete by recording the end timestamp.
    */
   complete() {
+    void this.finalize();
+  }
+  /**
+   * Finalize tracking state and await pending async metric collection.
+   *
+   * This is useful for benchmark orchestration code that needs a stable
+   * report snapshot (ended timestamp + final runtime sample + environment).
+   */
+  async finalize() {
     if (!this.options.enabled) {
       return;
     }
+    if (this.finalized) {
+      return;
+    }
+    this.finalized = true;
+    this.stopRuntimeSampling();
     this.run.endedAt = Date.now();
+    if (this.options.captureRuntimeSamples) {
+      await this.captureRuntimeSample();
+    }
+    if (this.environmentMetricsPromise) {
+      await this.environmentMetricsPromise;
+    }
   }
   /**
    * Generate a deep-cloned tracking report, optionally filtered by
@@ -6010,6 +6713,15 @@ var SimulationTracker = class {
       }
       return true;
     });
+    const filteredRuntimeSamples = this.runtimeSamples.filter((sample) => {
+      if (typeof fromFrame === "number" && sample.frameNumber >= 0 && sample.frameNumber < fromFrame) {
+        return false;
+      }
+      if (typeof toFrame === "number" && sample.frameNumber >= 0 && sample.frameNumber > toFrame) {
+        return false;
+      }
+      return true;
+    });
     const frameView = filteredFrames.map((frame) => ({
       ...frame,
       agentPositions: filter?.includeAgentPositions === false ? void 0 : frame.agentPositions?.map((agent) => ({ ...agent })),
@@ -6021,13 +6733,41 @@ var SimulationTracker = class {
       (total, frame) => total + (frame.performance?.totalExecutionTime ?? 0),
       0
     );
+    const inputCounts = filteredFrames.map((frame) => frame.inputKeyCount ?? 0);
+    const inputTotal = inputCounts.reduce((total, count) => total + count, 0);
+    const inputStats = {
+      requiredInputCount: this.run.configuration.requiredInputs.length,
+      definedInputCount: this.run.configuration.definedInputs.length,
+      minKeysPerFrame: inputCounts.length > 0 ? Math.min(...inputCounts) : 0,
+      maxKeysPerFrame: inputCounts.length > 0 ? Math.max(...inputCounts) : 0,
+      averageKeysPerFrame: inputCounts.length > 0 ? inputTotal / inputCounts.length : 0
+    };
+    const agentCounts = filteredFrames.map(
+      (frame) => frame.performance?.agentCount ?? frame.agentPositions?.length ?? 0
+    );
+    const agentTotal = agentCounts.reduce((total, count) => total + count, 0);
+    const agentStats = {
+      minAgentsPerFrame: agentCounts.length > 0 ? Math.min(...agentCounts) : 0,
+      maxAgentsPerFrame: agentCounts.length > 0 ? Math.max(...agentCounts) : 0,
+      averageAgentsPerFrame: agentCounts.length > 0 ? agentTotal / agentCounts.length : 0
+    };
     const methodGroups = /* @__PURE__ */ new Map();
+    const methodRenderGroups = /* @__PURE__ */ new Map();
     for (const frame of filteredFrames) {
       const perf = frame.performance;
       if (!perf) continue;
       let group = methodGroups.get(frame.method);
       if (!group) {
-        group = { setup: 0, compute: 0, render: 0, readback: 0, total: 0, count: 0 };
+        group = {
+          setup: 0,
+          compute: 0,
+          render: 0,
+          readback: 0,
+          total: 0,
+          compile: 0,
+          compileEvents: 0,
+          count: 0
+        };
         methodGroups.set(frame.method, group);
       }
       group.setup += perf.setupTime ?? 0;
@@ -6035,7 +6775,42 @@ var SimulationTracker = class {
       group.render += perf.renderTime ?? 0;
       group.readback += perf.readbackTime ?? 0;
       group.total += perf.totalExecutionTime;
+      if (typeof perf.compileTime === "number") {
+        group.compile += perf.compileTime;
+        group.compileEvents += 1;
+      }
       group.count += 1;
+      const renderGroupKey = `${frame.method}::${frame.renderMode}`;
+      let renderGroup = methodRenderGroups.get(renderGroupKey);
+      if (!renderGroup) {
+        renderGroup = {
+          method: frame.method,
+          renderMode: frame.renderMode,
+          setup: 0,
+          compute: 0,
+          render: 0,
+          readback: 0,
+          total: 0,
+          hostToGpu: 0,
+          gpuToHost: 0,
+          memory: 0,
+          memoryCount: 0,
+          count: 0
+        };
+        methodRenderGroups.set(renderGroupKey, renderGroup);
+      }
+      renderGroup.setup += perf.setupTime ?? 0;
+      renderGroup.compute += perf.computeTime ?? 0;
+      renderGroup.render += perf.renderTime ?? 0;
+      renderGroup.readback += perf.readbackTime ?? 0;
+      renderGroup.total += perf.totalExecutionTime;
+      renderGroup.hostToGpu += perf.bridgeTimings?.hostToGpuTime ?? 0;
+      renderGroup.gpuToHost += perf.bridgeTimings?.gpuToHostTime ?? 0;
+      if (typeof perf.memoryStats?.methodMemoryFootprintBytes === "number") {
+        renderGroup.memory += perf.memoryStats.methodMemoryFootprintBytes;
+        renderGroup.memoryCount += 1;
+      }
+      renderGroup.count += 1;
     }
     const methodSummaries = [];
     for (const [method, g] of methodGroups) {
@@ -6046,9 +6821,34 @@ var SimulationTracker = class {
         avgComputeTime: g.count > 0 ? g.compute / g.count : 0,
         avgRenderTime: g.count > 0 ? g.render / g.count : 0,
         avgReadbackTime: g.count > 0 ? g.readback / g.count : 0,
-        avgTotalTime: g.count > 0 ? g.total / g.count : 0
+        avgTotalTime: g.count > 0 ? g.total / g.count : 0,
+        avgCompileTime: g.compileEvents > 0 ? g.compile / g.compileEvents : 0,
+        compileEvents: g.compileEvents
       });
     }
+    const methodRenderSummaries = [];
+    for (const [, g] of methodRenderGroups) {
+      methodRenderSummaries.push({
+        method: g.method,
+        renderMode: g.renderMode,
+        frameCount: g.count,
+        avgSetupTime: g.count > 0 ? g.setup / g.count : 0,
+        avgComputeTime: g.count > 0 ? g.compute / g.count : 0,
+        avgRenderTime: g.count > 0 ? g.render / g.count : 0,
+        avgReadbackTime: g.count > 0 ? g.readback / g.count : 0,
+        avgTotalTime: g.count > 0 ? g.total / g.count : 0,
+        avgHostToGpuBridgeTime: g.count > 0 ? g.hostToGpu / g.count : 0,
+        avgGpuToHostBridgeTime: g.count > 0 ? g.gpuToHost / g.count : 0,
+        avgMethodMemoryFootprintBytes: g.memoryCount > 0 ? g.memory / g.memoryCount : 0
+      });
+    }
+    const frameTimeStats = distribution(
+      filteredFrames.map((frame) => frame.performance?.totalExecutionTime ?? 0).filter((value) => Number.isFinite(value))
+    );
+    const runtimeSampling = this.buildRuntimeSamplingSummary(
+      filteredRuntimeSamples,
+      filteredFrames
+    );
     return {
       run: {
         ...this.run,
@@ -6057,15 +6857,24 @@ var SimulationTracker = class {
           requiredInputs: [...this.run.configuration.requiredInputs],
           definedInputs: this.run.configuration.definedInputs.map((input) => ({
             ...input
-          }))
+          })),
+          wasmCodeFeatures: this.run.configuration.wasmCodeFeatures ? { ...this.run.configuration.wasmCodeFeatures } : void 0
         },
         metadata: this.run.metadata ? { ...this.run.metadata } : void 0
       },
       environment: this.environment ? {
         device: { ...this.environment.device },
         browser: { ...this.environment.browser },
-        gpu: this.environment.gpu ? { ...this.environment.gpu } : void 0
+        gpu: this.environment.gpu ? { ...this.environment.gpu } : void 0,
+        wasm: { ...this.environment.wasm },
+        battery: this.environment.battery ? { ...this.environment.battery } : void 0
       } : void 0,
+      runtimeSamples: filteredRuntimeSamples.map((sample) => ({
+        ...sample,
+        jsHeap: sample.jsHeap ? { ...sample.jsHeap } : void 0,
+        battery: sample.battery ? { ...sample.battery } : void 0,
+        thermalCanary: sample.thermalCanary ? { ...sample.thermalCanary } : void 0
+      })),
       frames: frameView,
       logs: filter?.includeLogs === false ? [] : this.logs.map((entry) => ({ ...entry })),
       errors: this.errors.map((entry) => ({ ...entry })),
@@ -6075,9 +6884,71 @@ var SimulationTracker = class {
         totalExecutionMs,
         averageExecutionMs: filteredFrames.length > 0 ? totalExecutionMs / filteredFrames.length : 0,
         errorCount: this.errors.length,
-        methodSummaries
+        methodSummaries,
+        methodRenderSummaries,
+        frameTimeStats,
+        inputStats,
+        agentStats,
+        runtimeSampling
       }
     };
+  }
+  buildRuntimeSamplingSummary(samples, frames) {
+    const jsHeapSamples = samples.map((sample) => sample.jsHeap?.usedJSHeapSize).filter((value) => typeof value === "number");
+    if (jsHeapSamples.length === 0) {
+      for (const frame of frames) {
+        const used = frame.performance?.memoryStats?.usedJsHeapSizeBytes;
+        if (typeof used === "number") {
+          jsHeapSamples.push(used);
+        }
+      }
+    }
+    const runtimeSampling = {};
+    if (jsHeapSamples.length > 0) {
+      const total = jsHeapSamples.reduce((sum, value) => sum + value, 0);
+      runtimeSampling.jsHeap = {
+        sampleCount: jsHeapSamples.length,
+        startBytes: jsHeapSamples[0],
+        endBytes: jsHeapSamples[jsHeapSamples.length - 1],
+        deltaBytes: jsHeapSamples[jsHeapSamples.length - 1] - jsHeapSamples[0],
+        minBytes: Math.min(...jsHeapSamples),
+        maxBytes: Math.max(...jsHeapSamples),
+        averageBytes: total / jsHeapSamples.length
+      };
+    }
+    const batterySamples = samples.map((sample) => sample.battery).filter(
+      (battery) => Boolean(battery)
+    );
+    if (batterySamples.length > 0) {
+      const levelSamples = batterySamples.map((battery) => battery.level).filter((level) => typeof level === "number");
+      runtimeSampling.battery = {
+        supported: batterySamples.some((battery) => battery.supported),
+        sampleCount: batterySamples.length,
+        startLevel: levelSamples.length > 0 ? levelSamples[0] : void 0,
+        endLevel: levelSamples.length > 0 ? levelSamples[levelSamples.length - 1] : void 0,
+        deltaLevel: levelSamples.length > 1 ? levelSamples[levelSamples.length - 1] - levelSamples[0] : void 0,
+        startCharging: batterySamples[0]?.charging,
+        endCharging: batterySamples[batterySamples.length - 1]?.charging
+      };
+    }
+    const canaryDrifts = samples.map((sample) => sample.thermalCanary?.driftMs).filter((value) => typeof value === "number");
+    if (canaryDrifts.length > 0) {
+      const stats = distribution(canaryDrifts);
+      const threshold = Math.max(
+        DEFAULT_THROTTLING_THRESHOLD_MS,
+        this.runtimeSampleIntervalMs * 0.75
+      );
+      runtimeSampling.thermalCanary = {
+        sampleCount: canaryDrifts.length,
+        sampleIntervalMs: this.runtimeSampleIntervalMs,
+        avgDriftMs: stats.average,
+        p95DriftMs: stats.p95,
+        maxDriftMs: stats.max,
+        throttlingEvents: canaryDrifts.filter((value) => value > threshold).length,
+        throttlingEventThresholdMs: threshold
+      };
+    }
+    return Object.keys(runtimeSampling).length > 0 ? runtimeSampling : void 0;
   }
   /**
    * Remove the global log listener registered by this tracker.
@@ -6085,6 +6956,7 @@ var SimulationTracker = class {
    * Should be called during simulation teardown to prevent memory leaks.
    */
   dispose() {
+    this.stopRuntimeSampling();
     if (this.logListener) {
       Logger.removeListener(this.logListener);
     }
@@ -6215,7 +7087,8 @@ var Simulation = class {
       compilationResult,
       this.performanceMonitor,
       options.agents,
-      options.workers
+      options.workers,
+      options.wasmExecutionMode ?? "auto"
     );
     if (config.canvas) {
       config.canvas.width = this.width;
@@ -6304,6 +7177,20 @@ var Simulation = class {
       this.height = this.renderer.canvas.height;
     }
     return { width: this.width, height: this.height };
+  }
+  captureJsHeapSnapshot() {
+    if (typeof performance === "undefined") {
+      return void 0;
+    }
+    const perf = performance;
+    if (!perf.memory) {
+      return void 0;
+    }
+    return {
+      jsHeapSizeLimitBytes: perf.memory.jsHeapSizeLimit,
+      totalJsHeapSizeBytes: perf.memory.totalJSHeapSize,
+      usedJsHeapSizeBytes: perf.memory.usedJSHeapSize
+    };
   }
   /**
    * Merge user-supplied frame inputs with system inputs (dimensions, agents,
@@ -6510,6 +7397,13 @@ var Simulation = class {
       if (lastFrame) {
         lastFrame.renderTime = renderTime;
         lastFrame.totalExecutionTime += renderTime;
+        const jsHeapSnapshot = this.captureJsHeapSnapshot();
+        if (jsHeapSnapshot) {
+          lastFrame.memoryStats = {
+            ...lastFrame.memoryStats ?? {},
+            ...jsHeapSnapshot
+          };
+        }
       }
       const currentFrameNumber = this.frameNumber;
       this.frameNumber += 1;
@@ -6553,6 +7447,15 @@ var Simulation = class {
     return this.tracker.getReport(filter);
   }
   /**
+   * Finalize tracking and wait for pending async metric capture to settle.
+   *
+   * Useful before exporting a benchmark report to ensure end timestamps,
+   * environment metrics, and the final runtime sample are present.
+   */
+  async finalizeTracking() {
+    await this.tracker.finalize();
+  }
+  /**
    * Export the tracking report as a formatted JSON string.
    *
    * @param filter - Optional filter to restrict the frame range and inclusions.
@@ -6584,6 +7487,8 @@ var Simulation = class {
   destroy() {
     this.tracker.complete();
     this.tracker.dispose();
+    this.renderer?.resetGPUState();
+    this.renderer = null;
     this.computeEngine.destroy();
     this.agents = [];
     this.trailMap = null;
