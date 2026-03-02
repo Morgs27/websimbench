@@ -37,34 +37,42 @@ The exported JSON has two layers:
 | `warmup`          | boolean  | Whether warmup pass was enabled.                                                                 |
 | `warmupFrames`    | number   | Number of warmup frames (discarded).                                                             |
 | `tracking`        | object   | Tracking capture toggles used for each run.                                                      |
-| `metadata`        | object   | Benchmark UI metadata (currently `label`).                                                       |
 | `extras`          | object   | Extra sweep/tuning options (workers, WASM modes, sampling interval).                             |
 
 ### 2.2 `config.tracking`
 
-| Key                       | Type    | Meaning                                                             |
-| ------------------------- | ------- | ------------------------------------------------------------------- |
-| `enabled`                 | boolean | Master tracking enable/disable.                                     |
-| `captureAgentStates`      | boolean | Include `frames[].agentPositions`.                                  |
-| `captureFrameInputs`      | boolean | Include `frames[].inputSnapshot`.                                   |
-| `captureLogs`             | boolean | Include `trackingReport.logs`.                                      |
-| `captureDeviceMetrics`    | boolean | Include `trackingReport.environment` (if collection succeeds).      |
-| `captureRawArrays`        | boolean | Store typed arrays fully in inputs (otherwise compact descriptors). |
-| `captureRuntimeSamples`   | boolean | Enable periodic `runtimeSamples`.                                   |
-| `captureJsHeapSamples`    | boolean | Include JS heap in runtime samples (if supported by browser).       |
-| `captureBatteryStatus`    | boolean | Include battery samples via `navigator.getBattery` (if supported).  |
-| `captureThermalCanary`    | boolean | Include event-loop drift canary samples.                            |
-| `runtimeSampleIntervalMs` | number  | Sampling interval target in ms.                                     |
+| Key                       | Type    | Meaning                                                                                                                        |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `enabled`                 | boolean | Master tracking enable/disable.                                                                                                |
+| `captureAgentStates`      | boolean | Clones the internal agent typed arrays (X/Y positions, velocities, species) on every frame. Warning: Massive memory usage.     |
+| `captureFrameInputs`      | boolean | Records an exact copy of all runtime input variables passed into Simulation.runFrame() on every frame.                         |
+| `captureLogs`             | boolean | Intercepts and records all engine diagnostic warnings and errors as an array.                                                  |
+| `captureDeviceMetrics`    | boolean | Collects browser version, OS, hardware concurrency, window sizes, and WebGPU limits at startup.                                |
+| `captureRawArrays`        | boolean | Serializes large buffers directly into the report instead of just array metadata summaries. Warning: Massive memory usage.     |
+| `captureRuntimeSamples`   | boolean | Enables periodic sampling of the environment (like JS Heap, Battery, and event-loop drift) determined by the interval setting. |
+| `captureJsHeapSamples`    | boolean | Collects total JS heap memory constraints over time.                                                                           |
+| `captureBatteryStatus`    | boolean | Collects laptop/mobile battery discharging times and charge states.                                                            |
+| `captureThermalCanary`    | boolean | Tracks the lag/drift between a setInterval queue and its execution to discover thermal throttling loops.                       |
+| `runtimeSampleIntervalMs` | number  | Sampling interval target in ms.                                                                                                |
+
+> **Note on Sampling Frequency vs. Frame Capture:**
+>
+> The tracking configuration is split into two types of data collection:
+>
+> **1. Per-Frame Capture**  
+> `captureAgentStates`, `captureFrameInputs`, and the engine's built-in performance metrics (timings, GPU memory, bridge transfers) are collected continuously _on every single simulation frame_. These can be memory-intensive.
+>
+> **2. Interval Sampling**  
+> `captureRuntimeSamples`, `captureJsHeapSamples`, `captureBatteryStatus`, and `captureThermalCanary` are collected independently of the frame loop on a separate `setInterval` timer, governed by `runtimeSampleIntervalMs`. We sample these at an interval (default: 1000ms) to avoid degrading benchmark performance limits with expensive browser API calls (like battery probing or `performance.memory`), since these metrics don't change fast enough to warrant per-frame snapshots.
 
 ### 2.3 `config.extras`
 
-| Key                       | Type     | Meaning                                                    |
-| ------------------------- | -------- | ---------------------------------------------------------- |
-| `workerCountsEnabled`     | boolean  | If true, WebWorkers runs sweep over `workerCounts`.        |
-| `workerCounts`            | number[] | Candidate worker counts.                                   |
-| `wasmSimdSweepEnabled`    | boolean  | If true, WebAssembly runs sweep scalar + SIMD modes.       |
-| `wasmExecutionMode`       | string   | Default WASM mode when no sweep: `auto`, `scalar`, `simd`. |
-| `runtimeSampleIntervalMs` | number   | UI-controlled sampling interval for tracking.              |
+| Key                    | Type     | Meaning                                                    |
+| ---------------------- | -------- | ---------------------------------------------------------- |
+| `workerCountsEnabled`  | boolean  | If true, WebWorkers runs sweep over `workerCounts`.        |
+| `workerCounts`         | number[] | Candidate worker counts.                                   |
+| `wasmSimdSweepEnabled` | boolean  | If true, WebAssembly runs sweep scalar + SIMD modes.       |
+| `wasmExecutionMode`    | string   | Default WASM mode when no sweep: `auto`, `scalar`, `simd`. |
 
 ## 3. Run Entry (`runs[]`)
 

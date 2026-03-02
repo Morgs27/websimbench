@@ -8,9 +8,11 @@ import { docsV010 } from "./v0.1.0";
 import { docsV011 } from "./v0.1.1";
 import { docsV012 } from "./v0.1.2";
 import { docsV013 } from "./v0.1.3";
+import { docsV014 } from "./v0.1.4";
 import type { DocsPage, DocsVersion } from "./types";
 
 const versionMap: Record<string, DocsVersion> = {
+  [docsV014.id]: docsV014,
   [docsV013.id]: docsV013,
   [docsV012.id]: docsV012,
   [docsV011.id]: docsV011,

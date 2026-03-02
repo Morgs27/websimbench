@@ -240,7 +240,13 @@ const collectGpuMetrics = async (): Promise<RuntimeGPUMetrics | undefined> => {
       description?: string;
     } | null = null;
 
-    if (
+    if (adapter && "info" in adapter && typeof adapter.info === "object") {
+      adapterInfo = adapter.info as {
+        vendor?: string;
+        architecture?: string;
+        description?: string;
+      };
+    } else if (
       adapter &&
       "requestAdapterInfo" in adapter &&
       typeof (
@@ -263,10 +269,47 @@ const collectGpuMetrics = async (): Promise<RuntimeGPUMetrics | undefined> => {
       return undefined;
     }
 
+    let description =
+      adapterInfo?.description && adapterInfo.description.trim() !== ""
+        ? adapterInfo.description
+        : "Unknown";
+    const vendor =
+      adapterInfo?.vendor && adapterInfo.vendor.trim() !== ""
+        ? adapterInfo.vendor
+        : "Unknown";
+
+    // Apple Silicon WebGPU implementations often mask the specific chip (e.g. returning vendor "apple" and description "")
+    // The legacy WebGL debug renderer info often retains the exact hardware model (e.g. "ANGLE (Apple, Apple M4 Pro...)")
+    if (
+      isBrowserRuntime() &&
+      (description === "Unknown" || vendor.toLowerCase() === "apple")
+    ) {
+      try {
+        const canvas = document.createElement("canvas");
+        const gl = (canvas.getContext("webgl") ||
+          canvas.getContext(
+            "experimental-webgl",
+          )) as WebGLRenderingContext | null;
+        if (gl) {
+          const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+          if (debugInfo) {
+            const unmaskedRenderer = gl.getParameter(
+              debugInfo.UNMASKED_RENDERER_WEBGL,
+            );
+            if (typeof unmaskedRenderer === "string" && unmaskedRenderer) {
+              description = unmaskedRenderer;
+            }
+          }
+        }
+      } catch {
+        // Ignore WebGL fallback errors
+      }
+    }
+
     return {
-      vendor: adapterInfo?.vendor ?? "Unknown",
+      vendor,
       architecture: adapterInfo?.architecture ?? "Unknown",
-      description: adapterInfo?.description ?? "Unknown",
+      description,
       maxBufferSize: device.limits.maxBufferSize,
       maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize,
       maxComputeWorkgroupsPerDimension:

@@ -19,14 +19,7 @@ import type {
 } from "@/hooks/useBenchmark";
 import type { BenchmarkEntry } from "@/hooks/useBenchmarkDB";
 import "./BenchmarkPanel.css";
-import {
-  ArrowLeft,
-  FileText,
-  Frame,
-  Image,
-  PictureInPicture,
-  Wrench,
-} from "lucide-react";
+import { ArrowLeft, FileText, Frame, Image, Wrench } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -42,22 +35,67 @@ const ALL_METHODS: { value: Method; label: string }[] = [
 const ALL_RENDER_MODES: { value: RenderMode; label: string }[] = [
   { value: "cpu", label: "CPU Render" },
   { value: "gpu", label: "GPU Render (WebGPU only)" },
-  { value: "none", label: "Headless (none)" },
+  { value: "none", label: "Headless" },
 ];
 
 const CAPTURE_TOGGLES: {
   key: keyof NonNullable<BenchmarkConfig["tracking"]>;
   label: string;
+  description: string;
 }[] = [
-  { key: "captureDeviceMetrics", label: "Device Metrics" },
-  { key: "captureFrameInputs", label: "Frame Inputs" },
-  { key: "captureRuntimeSamples", label: "Runtime Samples" },
-  { key: "captureJsHeapSamples", label: "JS Heap Samples" },
-  { key: "captureBatteryStatus", label: "Battery Samples" },
-  { key: "captureThermalCanary", label: "Thermal Canary (event-loop drift)" },
-  { key: "captureLogs", label: "Capture Logs" },
-  { key: "captureAgentStates", label: "Agent States" },
-  { key: "captureRawArrays", label: "Raw Arrays (trailMap, randomValues)" },
+  {
+    key: "captureDeviceMetrics",
+    label: "Device Metrics",
+    description:
+      "Collects browser version, OS, hardware concurrency, window sizes, and WebGPU limits at startup.",
+  },
+  {
+    key: "captureFrameInputs",
+    label: "Frame Inputs",
+    description:
+      "Records an exact copy of all runtime input variables passed into Simulation.runFrame() on every frame.",
+  },
+  {
+    key: "captureRuntimeSamples",
+    label: "Runtime Samples",
+    description:
+      "Enables periodic sampling of the environment (like JS Heap, Battery, and event-loop drift) determined by the interval setting.",
+  },
+  {
+    key: "captureJsHeapSamples",
+    label: "JS Heap Samples",
+    description: "Collects total JS heap memory constraints over time.",
+  },
+  {
+    key: "captureBatteryStatus",
+    label: "Battery Samples",
+    description:
+      "Collects laptop/mobile battery discharging times and charge states.",
+  },
+  {
+    key: "captureThermalCanary",
+    label: "Thermal Canary (event-loop drift)",
+    description:
+      "Tracks the lag/drift between a setInterval queue and its execution to discover thermal throttling loops.",
+  },
+  {
+    key: "captureLogs",
+    label: "Capture Logs",
+    description:
+      "Intercepts and records all engine diagnostic warnings and errors as an array.",
+  },
+  {
+    key: "captureAgentStates",
+    label: "Agent States",
+    description:
+      "Clones the internal agent typed arrays (X/Y positions, velocities, species) on every frame. Warning: Massive memory usage.",
+  },
+  {
+    key: "captureRawArrays",
+    label: "Raw Arrays (trailMap, randomValues)",
+    description:
+      "Serializes large buffers directly into the report instead of just array metadata summaries. Warning: Massive memory usage.",
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -431,10 +469,6 @@ export const BenchmarkPanel = ({
                   hour: "2-digit",
                   minute: "2-digit",
                 });
-                const cleanMethods = entry.methods.map((m) => {
-                  const [method, render] = m.split("/");
-                  return fmtMethod(method, render);
-                });
                 const agentRange =
                   entry.agentCounts.length > 1
                     ? `${fmtAgents(Math.min(...entry.agentCounts))}–${fmtAgents(Math.max(...entry.agentCounts))}`
@@ -673,6 +707,9 @@ export const BenchmarkPanel = ({
             >
               {opt.label}
             </label>
+            <div className="benchmark-checkbox-description">
+              {opt.description}
+            </div>
           </div>
         ))}
       </div>
@@ -769,10 +806,10 @@ export const BenchmarkPanel = ({
           <input
             type="number"
             className="benchmark-field-input"
-            value={config.extras.runtimeSampleIntervalMs}
+            value={config.tracking.runtimeSampleIntervalMs}
             onChange={(e) =>
-              updateConfig("extras", {
-                ...config.extras,
+              updateConfig("tracking", {
+                ...config.tracking,
                 runtimeSampleIntervalMs: Math.max(
                   100,
                   parseInt(e.target.value, 10) || 100,
@@ -782,28 +819,6 @@ export const BenchmarkPanel = ({
             min={100}
             step={100}
             disabled={isRunning}
-          />
-        </div>
-      </div>
-
-      <div className="benchmark-section">
-        <div className="benchmark-section-label">
-          <FileText size={14} />
-          Metadata
-        </div>
-        <div className="benchmark-field">
-          <label className="benchmark-field-label">Label (optional)</label>
-          <input
-            className="benchmark-field-input"
-            value={config.metadata.label}
-            onChange={(e) =>
-              updateConfig("metadata", {
-                ...config.metadata,
-                label: e.target.value,
-              })
-            }
-            disabled={isRunning}
-            placeholder="e.g. baseline-run, paper-v2"
           />
         </div>
       </div>

@@ -34,10 +34,6 @@ export interface BenchmarkConfig {
   warmupFrames: number;
   /** Tracking capture toggles */
   tracking: Partial<TrackingOptions>;
-  /** Optional label appended to export filenames & metadata */
-  metadata: {
-    label: string;
-  };
   /** Extras */
   extras: {
     /** Enable stepping over multiple web worker counts */
@@ -48,8 +44,6 @@ export interface BenchmarkConfig {
     wasmSimdSweepEnabled: boolean;
     /** Default WASM execution mode when sweep is disabled */
     wasmExecutionMode: WasmExecutionMode;
-    /** Interval for runtime sampling in the tracking report */
-    runtimeSampleIntervalMs: number;
   };
 }
 
@@ -142,15 +136,11 @@ export const DEFAULT_BENCHMARK_CONFIG: BenchmarkConfig = {
     captureThermalCanary: true,
     runtimeSampleIntervalMs: 1000,
   },
-  metadata: {
-    label: "",
-  },
   extras: {
     workerCountsEnabled: false,
     workerCounts: [1, 2, 4, 8],
     wasmSimdSweepEnabled: false,
     wasmExecutionMode: "auto",
-    runtimeSampleIntervalMs: 1000,
   },
 };
 
@@ -177,7 +167,7 @@ const canUseRenderMode = (method: Method, renderMode: RenderMode): boolean => {
 const buildTrackingOptions = (cfg: BenchmarkConfig): TrackingOptions => {
   const sampleInterval = Math.max(
     100,
-    Math.round(cfg.extras.runtimeSampleIntervalMs || 1000),
+    Math.round(cfg.tracking.runtimeSampleIntervalMs || 1000),
   );
   return {
     enabled: cfg.tracking.enabled ?? true,
@@ -351,10 +341,6 @@ export function useBenchmark() {
             },
           };
 
-          if (cfg.metadata.label.trim().length > 0) {
-            runMetadata.label = cfg.metadata.label.trim();
-          }
-
           sim = new Simulation({
             canvas,
             gpuCanvas: gpuCanvas ?? null,
@@ -422,7 +408,6 @@ export function useBenchmark() {
                 runtimeSampleIntervalMs:
                   trackingOptions.runtimeSampleIntervalMs,
               },
-              label: cfg.metadata.label.trim() || undefined,
             },
           });
 

@@ -58,19 +58,10 @@ export type DocsNavigationSection = {
   pages: Array<Pick<DocsPage, "id" | "title">>;
 };
 
-export type RunnableExample = {
-  id: string;
-  title: string;
-  description: string;
-  html: string;
-  javascript: string;
-};
-
 export type DocsVersion = {
   id: `v${string}`;
   packageVersion: string;
   releaseDate: string;
   sections: DocsNavigationSection[];
   pages: DocsPage[];
-  runnableExamples: RunnableExample[];
 };
