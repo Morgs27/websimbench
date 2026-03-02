@@ -1,8 +1,5 @@
 import { PREMADE_SIMULATIONS } from "@/config/premadeSimulations";
-import { CURRENT_VERSION } from "@/config/version";
 import type { DocsContentBlock, DocsLinkCard, DocsVersion } from "./types";
-
-const CDN_IMPORT_URL = `https://esm.sh/@websimbench/agentyx@${CURRENT_VERSION}?bundle`;
 
 const PRESET_SLIME_MOLD = PREMADE_SIMULATIONS["Slime Mold"].code.trim();
 const PRESET_BOIDS = PREMADE_SIMULATIONS["Boids"].code.trim();
@@ -386,61 +383,6 @@ if (sL > sR) {
 
 // 4) Use renderMode='none' for pure compute benchmarks
 // await simulation.runFrame('WebGPU', inputs, 'none');`;
-
-// ---------------------------------------------------------------------------
-// Runnable example code
-// ---------------------------------------------------------------------------
-
-const EXAMPLE_HTML_TEMPLATE = `<!doctype html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <style>
-      button {
-        border: 0;
-        border-radius: 8px;
-        padding: 8px 12px;
-        background: #25b8a8;
-        color: #07211f;
-        font-weight: 700;
-        cursor: pointer;
-        margin-bottom: 10px;
-      }
-    </style>
-  </head>
-  <body>
-      <div class="row">
-        <button id="toggle">Start</button>
-      </div>
-      <canvas id="sim" width="600" height="400"></canvas>
-  </body>
-</html>`;
-
-const EXAMPLE_BASIC_JS = `import { Simulation } from '${CDN_IMPORT_URL}';
-
-const canvas = document.getElementById('sim');
-const toggle = document.getElementById('toggle');
-
-const simulation = new Simulation({
-  canvas,
-  source: { kind: 'dsl', code: ${DSL_LITERAL(QUICK_START_DSL)} },
-  options: { agents: 5000 },
-});
-
-let running = false;
-
-async function tick() {
-  if (!running) return;
-  await simulation.runFrame('JavaScript', { speed: 2, turnAngle: 0.35 }, 'cpu');
-  requestAnimationFrame(tick);
-}
-
-toggle.addEventListener('click', () => {
-  running = !running;
-  toggle.textContent = running ? 'Stop' : 'Start';
-  if (running) tick();
-});`;
 
 // ---------------------------------------------------------------------------
 // Helper to build a code content block concisely
@@ -2399,61 +2341,6 @@ input r = random();`,
           ],
         },
       ],
-    },
-
-    // =====================================================================
-    //  RUNNABLE EXAMPLES
-    {
-      id: "examples-overview",
-      title: "Examples Overview",
-      description:
-        "Edit HTML and JavaScript snippets, then execute them in an isolated preview. Examples load Agentyx from a CDN \u2014 no bundler required.",
-      sections: [
-        {
-          id: "how-it-works",
-          title: "How the Runner Works",
-          content: [
-            p(
-              "Each example consists of an HTML template and a JavaScript module that imports Agentyx from `esm.sh`. The runner creates an isolated `<iframe>` with your code, so changes are safe to experiment with.",
-            ),
-
-            tip(
-              'The examples use the JavaScript compute backend by default for maximum compatibility. Try changing `"JavaScript"` to `"WebGPU"` (and adding `await simulation.initGPU()`) to see the GPU path in action.',
-            ),
-            linkCards([
-              {
-                page: "basic-cpu",
-                title: "Basic CPU Loop",
-                description:
-                  "Minimal JavaScript compute + cpu render integration.",
-                icon: "examples",
-              },
-            ]),
-          ],
-        },
-      ],
-    },
-    {
-      id: "basic-cpu",
-      title: "Basic CPU Loop",
-      description: "Minimal JavaScript compute + cpu render integration.",
-      sections: [
-        {
-          id: "runner",
-          title: "Example",
-          content: [{ kind: "example-runner", exampleId: "basic-cpu" }],
-        },
-      ],
-    },
-  ],
-
-  runnableExamples: [
-    {
-      id: "basic-cpu",
-      title: "Basic CPU Loop",
-      description: "Minimal JavaScript compute + cpu render integration.",
-      html: EXAMPLE_HTML_TEMPLATE,
-      javascript: EXAMPLE_BASIC_JS,
     },
   ],
 };

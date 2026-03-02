@@ -1,8 +1,5 @@
 import { PREMADE_SIMULATIONS } from "@/config/premadeSimulations";
-import { CURRENT_VERSION } from "@/config/version";
 import type { DocsContentBlock, DocsLinkCard, DocsVersion } from "./types";
-
-const CDN_IMPORT_URL = `https://esm.sh/@websimbench/agentyx@${CURRENT_VERSION}?bundle`;
 
 const PRESET_SLIME_MOLD = PREMADE_SIMULATIONS["Slime Mold"].code.trim();
 const PRESET_BOIDS = PREMADE_SIMULATIONS["Boids"].code.trim();
@@ -397,61 +394,6 @@ if (sL > sR) {
 
 // 4) Use renderMode='none' for pure compute benchmarks
 // await simulation.runFrame('WebGPU', inputs, 'none');`;
-
-// ---------------------------------------------------------------------------
-// Runnable example code
-// ---------------------------------------------------------------------------
-
-const EXAMPLE_HTML_TEMPLATE = `<!doctype html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <style>
-      button {
-        border: 0;
-        border-radius: 8px;
-        padding: 8px 12px;
-        background: #25b8a8;
-        color: #07211f;
-        font-weight: 700;
-        cursor: pointer;
-        margin-bottom: 10px;
-      }
-    </style>
-  </head>
-  <body>
-      <div class="row">
-        <button id="toggle">Start</button>
-      </div>
-      <canvas id="sim" width="600" height="400"></canvas>
-  </body>
-</html>`;
-
-const EXAMPLE_BASIC_JS = `import { Simulation } from '${CDN_IMPORT_URL}';
-
-const canvas = document.getElementById('sim');
-const toggle = document.getElementById('toggle');
-
-const simulation = new Simulation({
-  canvas,
-  source: { kind: 'dsl', code: ${DSL_LITERAL(QUICK_START_DSL)} },
-  options: { agents: 5000 },
-});
-
-let running = false;
-
-async function tick() {
-  if (!running) return;
-  await simulation.runFrame('JavaScript', { speed: 2, turnAngle: 0.35 }, 'cpu');
-  requestAnimationFrame(tick);
-}
-
-toggle.addEventListener('click', () => {
-  running = !running;
-  toggle.textContent = running ? 'Stop' : 'Start';
-  if (running) tick();
-});`;
 
 // ---------------------------------------------------------------------------
 // Helper to build a code content block concisely
