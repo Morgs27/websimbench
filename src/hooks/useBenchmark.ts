@@ -176,6 +176,134 @@ const canUseRenderMode = (method: Method, renderMode: RenderMode): boolean => {
   return true;
 };
 
+const JSON_BLOB_TYPE = "application/json";
+
+const stringifyJson = (value: unknown, contextLabel: string): string => {
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `[Benchmark] Failed to serialize ${contextLabel}: ${message}`,
+    );
+  }
+};
+
+/**
+ * Build a report Blob without creating one giant JSON string.
+ *
+ * Frames are serialized one-by-one, allowing very large reports (e.g. 50k+
+ * agents with per-frame snapshots) to stay below JS string limits.
+ */
+const buildTrackingReportBlob = (report: SimulationTrackingReport): Blob => {
+  const parts: BlobPart[] = [
+    "{",
+    '"run":',
+    stringifyJson(report.run, "tracking report run metadata"),
+    ",",
+  ];
+
+  if (report.environment !== undefined) {
+    parts.push(
+      '"environment":',
+      stringifyJson(report.environment, "tracking report environment"),
+      ",",
+    );
+  }
+
+  parts.push(
+    '"runtimeSamples":',
+    stringifyJson(report.runtimeSamples, "tracking report runtime samples"),
+    ",",
+    '"frames":[',
+  );
+
+  for (let i = 0; i < report.frames.length; i++) {
+    if (i > 0) {
+      parts.push(",");
+    }
+    parts.push(stringifyJson(report.frames[i], `tracking frame ${i}`));
+  }
+
+  parts.push(
+    "],",
+    '"logs":',
+    stringifyJson(report.logs, "tracking report logs"),
+    ",",
+    '"errors":',
+    stringifyJson(report.errors, "tracking report errors"),
+    ",",
+    '"summary":',
+    stringifyJson(report.summary, "tracking report summary"),
+    "}",
+  );
+
+  return new Blob(parts, { type: JSON_BLOB_TYPE });
+};
+
+/**
+ * Build the suite export Blob by stitching run report Blobs directly into
+ * the `runs[].trackingReport` field. This avoids reparsing and re-stringifying
+ * massive per-run payloads when downloading full benchmark reports.
+ */
+const buildBenchmarkSuiteBlob = (
+  r: BenchmarkResult,
+  runBlobs: Array<Blob | undefined>,
+): Blob => {
+  const suiteMeta = {
+    schemaVersion: "websimbench.benchmark.v1" as const,
+    simulationName: r.simulationName,
+    generatedAt: new Date().toISOString(),
+    sourceCode: r.sourceCode,
+    config: r.configSnapshot,
+    runCount: r.reports.length,
+  };
+
+  const suiteMetaJson = stringifyJson(suiteMeta, "benchmark suite metadata");
+  const parts: BlobPart[] = [suiteMetaJson.slice(0, -1), ',"runs":['];
+
+  for (let i = 0; i < r.reports.length; i++) {
+    const run = r.reports[i];
+    if (i > 0) {
+      parts.push(",");
+    }
+
+    const runMeta: Record<string, unknown> = {
+      status: run.status,
+      method: run.method,
+      renderMode: run.renderMode,
+      agentCount: run.agentCount,
+      executedFrames: run.executedFrames,
+      summary: run.summary,
+    };
+    if (typeof run.workerCount === "number") {
+      runMeta.workerCount = run.workerCount;
+    }
+    if (typeof run.wasmExecutionMode === "string") {
+      runMeta.wasmExecutionMode = run.wasmExecutionMode;
+    }
+    if (typeof run.error === "string") {
+      runMeta.error = run.error;
+    }
+
+    const runMetaJson = stringifyJson(runMeta, `suite run ${i} metadata`);
+    parts.push(runMetaJson.slice(0, -1), ',"trackingReport":');
+
+    const runBlob = runBlobs[i];
+    if (runBlob) {
+      parts.push(runBlob);
+    } else {
+      console.warn(`Missing run blob ${i}, using empty report object`);
+      parts.push("{}");
+    }
+
+    parts.push("}");
+  }
+
+  parts.push("]}");
+  return new Blob(parts, { type: JSON_BLOB_TYPE });
+};
+
 const buildTrackingOptions = (cfg: BenchmarkConfig): TrackingOptions => {
   const sampleInterval = Math.max(
     100,
@@ -553,9 +681,7 @@ export function useBenchmark() {
           // Collect report and flush to IndexedDB immediately.
           await sim.finalizeTracking();
           const report = sim.getTrackingReport();
-          const reportBlob = new Blob([JSON.stringify(report, null, 2)], {
-            type: "application/json",
-          });
+          const reportBlob = buildTrackingReportBlob(report);
 
           // Persist to IndexedDB right away, then discard heavy data.
           const runBlobKey = await saveRunBlob(suiteId, runIndex, reportBlob);
@@ -688,11 +814,7 @@ export function useBenchmark() {
                 },
               },
             } as SimulationTrackingReport);
-
-          const reportBlob = new Blob(
-            [JSON.stringify(fallbackReport, null, 2)],
-            { type: "application/json" },
-          );
+          const reportBlob = buildTrackingReportBlob(fallbackReport);
 
           // Persist failed run report to IndexedDB too.
           let runBlobKey = `${suiteId}:${runIndex}`;
@@ -789,8 +911,8 @@ export function useBenchmark() {
   /**
    * Build an IndexedDB entry + valid suite JSON from the current result.
    *
-   * Reads per-run report blobs back from IndexedDB to assemble the combined
-   * suite blob, avoiding holding all reports in memory simultaneously.
+   * Reads per-run report blobs back from IndexedDB and stitches them directly
+   * into `runs[].trackingReport`, avoiding reparsing huge payloads.
    */
   const buildEntry = useCallback(
     async (
@@ -798,50 +920,9 @@ export function useBenchmark() {
     ): Promise<{ entry: BenchmarkEntry; combinedBlob: Blob }> => {
       const id = r.suiteId;
 
-      // Read per-run blobs from IndexedDB and parse them back.
+      // Read per-run blobs from IndexedDB and stitch into one suite export.
       const runBlobs = await getRunBlobs(r.suiteId, r.reports.length);
-      const trackingReports: SimulationTrackingReport[] = [];
-
-      for (let i = 0; i < r.reports.length; i++) {
-        const blob = runBlobs[i];
-        if (blob) {
-          try {
-            const text = await blob.text();
-            trackingReports.push(JSON.parse(text) as SimulationTrackingReport);
-          } catch {
-            console.warn(`Failed to parse run blob ${i}, using empty report`);
-            trackingReports.push({} as SimulationTrackingReport);
-          }
-        } else {
-          console.warn(`Missing run blob ${i}, using empty report`);
-          trackingReports.push({} as SimulationTrackingReport);
-        }
-      }
-
-      const suiteExport: BenchmarkSuiteExport = {
-        schemaVersion: "websimbench.benchmark.v1",
-        simulationName: r.simulationName,
-        generatedAt: new Date().toISOString(),
-        sourceCode: r.sourceCode,
-        config: r.configSnapshot,
-        runCount: r.reports.length,
-        runs: r.reports.map((run, i) => ({
-          status: run.status,
-          method: run.method,
-          renderMode: run.renderMode,
-          agentCount: run.agentCount,
-          workerCount: run.workerCount,
-          wasmExecutionMode: run.wasmExecutionMode,
-          executedFrames: run.executedFrames,
-          summary: run.summary,
-          error: run.error,
-          trackingReport: trackingReports[i],
-        })),
-      };
-
-      const combinedBlob = new Blob([JSON.stringify(suiteExport, null, 2)], {
-        type: "application/json",
-      });
+      const combinedBlob = buildBenchmarkSuiteBlob(r, runBlobs);
 
       return {
         entry: {
