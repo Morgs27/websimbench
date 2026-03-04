@@ -5,6 +5,7 @@ import {
   DownloadSimple,
   Trash,
   Lightning,
+  Timer,
   CalendarBlank,
   Clock,
   Users,
@@ -278,48 +279,90 @@ export const BenchmarkPanel = ({
         {/* Running state */}
         {isRunning && progress && (
           <div className="benchmark-run-view">
-            <div className="benchmark-run-hero">
-              <div className="benchmark-run-hero-label">
-                <Lightning
-                  size={18}
-                  weight="fill"
-                  className="benchmark-run-hero-icon"
-                />
-                Running Benchmark
-              </div>
-              <div className="benchmark-run-hero-run">
-                {fmtMethod(progress.currentMethod, progress.currentRenderMode)}
-                {progress.extraLabel ? ` (${progress.extraLabel})` : ""} —{" "}
-                {fmtAgents(progress.currentAgentCount)} agents
-              </div>
-              <div className="benchmark-run-hero-detail">
-                {progress.runMode === "duration"
-                  ? `${Math.floor((progress.elapsedMs ?? 0) / 1000)}s / ${Math.floor((progress.targetDurationMs ?? 0) / 1000)}s`
-                  : `Frame ${progress.currentFrame} / ${progress.totalFrames}`}
-              </div>
-            </div>
-
-            <div className="benchmark-progress">
-              <div className="benchmark-progress-bar large">
-                <div
-                  className="benchmark-progress-fill"
-                  style={{ width: `${progressFraction}%` }}
-                />
-              </div>
-              <div className="benchmark-progress-text">
-                Run {progress.completedRuns + 1} of {progress.totalRuns} —{" "}
-                {Math.round(progressFraction)}% complete
-              </div>
-            </div>
-
-            {/* Render preview — shown when using CPU or GPU render mode */}
-            {isRendering && (
-              <div className="benchmark-preview">
-                <div className="benchmark-preview-label">
-                  Render Preview ({progress.currentRenderMode})
+            {/* Inter-run delay countdown */}
+            {typeof progress.delayRemainingMs === "number" ? (
+              <>
+                <div className="benchmark-run-hero">
+                  <div className="benchmark-run-hero-label">
+                    <Timer
+                      size={18}
+                      weight="bold"
+                      className="benchmark-run-hero-icon"
+                      style={{ opacity: 0.7 }}
+                    />
+                    Cooling Down
+                  </div>
+                  <div className="benchmark-run-hero-detail">
+                    {Math.ceil(progress.delayRemainingMs / 1000)}s remaining
+                    before next run
+                  </div>
                 </div>
-                <canvas ref={previewRef} className="benchmark-preview-canvas" />
-              </div>
+
+                <div className="benchmark-progress">
+                  <div className="benchmark-progress-bar large">
+                    <div
+                      className="benchmark-progress-fill"
+                      style={{ width: `${progressFraction}%` }}
+                    />
+                  </div>
+                  <div className="benchmark-progress-text">
+                    Run {progress.completedRuns + 1} of {progress.totalRuns} —{" "}
+                    {Math.round(progressFraction)}% complete
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="benchmark-run-hero">
+                  <div className="benchmark-run-hero-label">
+                    <Lightning
+                      size={18}
+                      weight="fill"
+                      className="benchmark-run-hero-icon"
+                    />
+                    Running Benchmark
+                  </div>
+                  <div className="benchmark-run-hero-run">
+                    {fmtMethod(
+                      progress.currentMethod,
+                      progress.currentRenderMode,
+                    )}
+                    {progress.extraLabel ? ` (${progress.extraLabel})` : ""} —{" "}
+                    {fmtAgents(progress.currentAgentCount)} agents
+                  </div>
+                  <div className="benchmark-run-hero-detail">
+                    {progress.runMode === "duration"
+                      ? `${Math.floor((progress.elapsedMs ?? 0) / 1000)}s / ${Math.floor((progress.targetDurationMs ?? 0) / 1000)}s`
+                      : `Frame ${progress.currentFrame} / ${progress.totalFrames}`}
+                  </div>
+                </div>
+
+                <div className="benchmark-progress">
+                  <div className="benchmark-progress-bar large">
+                    <div
+                      className="benchmark-progress-fill"
+                      style={{ width: `${progressFraction}%` }}
+                    />
+                  </div>
+                  <div className="benchmark-progress-text">
+                    Run {progress.completedRuns + 1} of {progress.totalRuns} —{" "}
+                    {Math.round(progressFraction)}% complete
+                  </div>
+                </div>
+
+                {/* Render preview — shown when using CPU or GPU render mode */}
+                {isRendering && (
+                  <div className="benchmark-preview">
+                    <div className="benchmark-preview-label">
+                      Render Preview ({progress.currentRenderMode})
+                    </div>
+                    <canvas
+                      ref={previewRef}
+                      className="benchmark-preview-canvas"
+                    />
+                  </div>
+                )}
+              </>
             )}
 
             <button className="benchmark-run-btn stop" onClick={onStop}>
@@ -684,6 +727,24 @@ export const BenchmarkPanel = ({
             />
           </div>
         )}
+        <div className="benchmark-field" style={{ marginTop: "0.25rem" }}>
+          <label className="benchmark-field-label">
+            Delay between runs (seconds)
+          </label>
+          <input
+            type="number"
+            className="benchmark-field-input"
+            value={config.delayBetweenRunsSeconds}
+            onChange={(e) =>
+              updateConfig(
+                "delayBetweenRunsSeconds",
+                Math.max(0, parseInt(e.target.value, 10) || 0),
+              )
+            }
+            min={0}
+            disabled={isRunning}
+          />
+        </div>
       </div>
 
       <div className="benchmark-section">

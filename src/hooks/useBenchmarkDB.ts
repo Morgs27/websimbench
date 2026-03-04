@@ -20,11 +20,13 @@ export interface BenchmarkEntry {
 // ---------------------------------------------------------------------------
 
 const DB_NAME = "websimbench-benchmarks";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const META_STORE = "meta";
 const BLOB_STORE = "blobs";
+/** Per-run report blobs, keyed by `{suiteId}:{runIndex}`. */
+const RUN_BLOB_STORE = "run-blobs";
 
-const openDB = (): Promise<IDBDatabase> =>
+export const openDB = (): Promise<IDBDatabase> =>
   new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
@@ -34,6 +36,9 @@ const openDB = (): Promise<IDBDatabase> =>
       }
       if (!db.objectStoreNames.contains(BLOB_STORE)) {
         db.createObjectStore(BLOB_STORE);
+      }
+      if (!db.objectStoreNames.contains(RUN_BLOB_STORE)) {
+        db.createObjectStore(RUN_BLOB_STORE);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -73,6 +78,65 @@ const idbDelete = (store: IDBObjectStore, key: IDBValidKey) =>
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
+
+// ---------------------------------------------------------------------------
+// Standalone helpers (callable outside of React)
+// ---------------------------------------------------------------------------
+
+/**
+ * Save an individual run's report blob to IndexedDB immediately.
+ * Key format: `{suiteId}:{runIndex}`.
+ */
+export const saveRunBlob = async (
+  suiteId: string,
+  runIndex: number,
+  blob: Blob,
+): Promise<string> => {
+  const key = `${suiteId}:${runIndex}`;
+  const db = await openDB();
+  await idbPut(txStore(db, RUN_BLOB_STORE, "readwrite"), blob, key);
+  return key;
+};
+
+/**
+ * Retrieve a single run blob by its key.
+ */
+export const getRunBlob = async (key: string): Promise<Blob | undefined> => {
+  const db = await openDB();
+  return idbGet<Blob>(txStore(db, RUN_BLOB_STORE, "readonly"), key);
+};
+
+/**
+ * Retrieve all run blobs for a suite, in order.
+ */
+export const getRunBlobs = async (
+  suiteId: string,
+  runCount: number,
+): Promise<(Blob | undefined)[]> => {
+  const db = await openDB();
+  const results: (Blob | undefined)[] = [];
+  for (let i = 0; i < runCount; i++) {
+    const key = `${suiteId}:${i}`;
+    results.push(
+      await idbGet<Blob>(txStore(db, RUN_BLOB_STORE, "readonly"), key),
+    );
+  }
+  return results;
+};
+
+/**
+ * Delete all run blobs for a suite.
+ */
+export const deleteRunBlobs = async (
+  suiteId: string,
+  runCount: number,
+): Promise<void> => {
+  const db = await openDB();
+  const store = txStore(db, RUN_BLOB_STORE, "readwrite");
+  for (let i = 0; i < runCount; i++) {
+    await idbDelete(store, `${suiteId}:${i}`);
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Hook

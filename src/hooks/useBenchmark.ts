@@ -8,6 +8,7 @@ import {
   type WasmExecutionMode,
 } from "@websimbench/agentyx";
 import type { BenchmarkEntry } from "./useBenchmarkDB";
+import { saveRunBlob, getRunBlobs } from "./useBenchmarkDB";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,8 @@ export interface BenchmarkConfig {
   warmup: boolean;
   /** Number of warmup frames */
   warmupFrames: number;
+  /** Delay between runs in seconds (lets the device cool down). */
+  delayBetweenRunsSeconds: number;
   /** Tracking capture toggles */
   tracking: Partial<TrackingOptions>;
   /** Extras */
@@ -64,12 +67,18 @@ export interface BenchmarkProgress {
   extraLabel?: string;
   /** Current run mode for display */
   runMode: BenchmarkRunMode;
+  /** Milliseconds remaining in the inter-run delay (undefined when not delaying). */
+  delayRemainingMs?: number;
   /** Elapsed time for duration mode */
   elapsedMs?: number;
   /** Target duration for duration mode */
   targetDurationMs?: number;
 }
 
+/**
+ * Lightweight per-run report kept in memory after the heavy tracking data
+ * has been flushed to IndexedDB.
+ */
 export interface BenchmarkRunReport {
   status: "completed" | "failed";
   method: Method;
@@ -80,11 +89,13 @@ export interface BenchmarkRunReport {
   executedFrames: number;
   summary: Record<string, unknown>;
   error?: string;
-  report: SimulationTrackingReport;
-  reportBlob: Blob;
+  /** IndexedDB key for the full per-run report blob. */
+  runBlobKey: string;
 }
 
 export interface BenchmarkResult {
+  /** Unique ID for this benchmark suite (used as prefix for IDB run-blob keys). */
+  suiteId: string;
   simulationName: string;
   sourceCode: string;
   configSnapshot: BenchmarkConfig;
@@ -123,6 +134,7 @@ export const DEFAULT_BENCHMARK_CONFIG: BenchmarkConfig = {
   durationSeconds: 10,
   warmup: true,
   warmupFrames: 2,
+  delayBetweenRunsSeconds: 2,
   tracking: {
     enabled: true,
     captureAgentStates: false,
@@ -222,6 +234,7 @@ export function useBenchmark() {
       setStatus("running");
       setResult(null);
 
+      const suiteId = crypto.randomUUID?.() ?? `suite-${Date.now()}`;
       const trackingOptions = buildTrackingOptions(cfg);
       const allReports: BenchmarkResult["reports"] = [];
 
@@ -273,6 +286,42 @@ export function useBenchmark() {
       for (const run of runs) {
         if (controller.signal.aborted) break;
 
+        const runIndex = completedRuns;
+
+        // --- Inter-run delay (skip before the very first run) ---
+        if (runIndex > 0 && cfg.delayBetweenRunsSeconds > 0) {
+          const delayMs = cfg.delayBetweenRunsSeconds * 1000;
+          const delayStart = performance.now();
+          const delayUpdateInterval = 100; // ms
+          let lastDelayUpdate = 0;
+
+          while (performance.now() - delayStart < delayMs) {
+            if (controller.signal.aborted) break;
+            const elapsed = performance.now() - delayStart;
+            const remaining = Math.max(0, delayMs - elapsed);
+
+            if (
+              elapsed - lastDelayUpdate >= delayUpdateInterval ||
+              remaining <= 0
+            ) {
+              lastDelayUpdate = elapsed;
+              setProgress((p) => {
+                if (!p) return p;
+                return { ...p, delayRemainingMs: remaining };
+              });
+            }
+
+            await new Promise((r) => setTimeout(r, delayUpdateInterval));
+          }
+
+          if (controller.signal.aborted) break;
+
+          // Clear the delay indicator.
+          setProgress((p) => {
+            if (!p) return p;
+            return { ...p, delayRemainingMs: undefined };
+          });
+        }
         const labelParts: string[] = [];
         if (typeof run.workerCount === "number") {
           labelParts.push(
@@ -501,12 +550,15 @@ export function useBenchmark() {
             break;
           }
 
-          // Collect report.
+          // Collect report and flush to IndexedDB immediately.
           await sim.finalizeTracking();
           const report = sim.getTrackingReport();
           const reportBlob = new Blob([JSON.stringify(report, null, 2)], {
             type: "application/json",
           });
+
+          // Persist to IndexedDB right away, then discard heavy data.
+          const runBlobKey = await saveRunBlob(suiteId, runIndex, reportBlob);
 
           allReports.push({
             status: "completed",
@@ -517,8 +569,7 @@ export function useBenchmark() {
             wasmExecutionMode: run.wasmExecutionMode,
             executedFrames,
             summary: report.summary as unknown as Record<string, unknown>,
-            report,
-            reportBlob,
+            runBlobKey,
           });
 
           sim.destroy();
@@ -642,6 +693,17 @@ export function useBenchmark() {
             [JSON.stringify(fallbackReport, null, 2)],
             { type: "application/json" },
           );
+
+          // Persist failed run report to IndexedDB too.
+          let runBlobKey = `${suiteId}:${runIndex}`;
+          try {
+            runBlobKey = await saveRunBlob(suiteId, runIndex, reportBlob);
+          } catch (saveError) {
+            console.warn("Failed to save failed run blob to IndexedDB:", {
+              saveError,
+            });
+          }
+
           allReports.push({
             status: "failed",
             method: run.method,
@@ -655,8 +717,7 @@ export function useBenchmark() {
               unknown
             >,
             error: errorMessage,
-            report: fallbackReport,
-            reportBlob,
+            runBlobKey,
           });
           sim?.destroy();
           completedRuns += 1;
@@ -696,6 +757,7 @@ export function useBenchmark() {
       }
 
       const benchResult: BenchmarkResult = {
+        suiteId,
         simulationName,
         sourceCode: code,
         configSnapshot: cfg,
@@ -724,10 +786,37 @@ export function useBenchmark() {
     setProgress(null);
   }, []);
 
-  /** Build an IndexedDB entry + valid suite JSON from the current result. */
+  /**
+   * Build an IndexedDB entry + valid suite JSON from the current result.
+   *
+   * Reads per-run report blobs back from IndexedDB to assemble the combined
+   * suite blob, avoiding holding all reports in memory simultaneously.
+   */
   const buildEntry = useCallback(
-    (r: BenchmarkResult): { entry: BenchmarkEntry; combinedBlob: Blob } => {
-      const id = crypto.randomUUID?.() ?? `bench-${Date.now()}`;
+    async (
+      r: BenchmarkResult,
+    ): Promise<{ entry: BenchmarkEntry; combinedBlob: Blob }> => {
+      const id = r.suiteId;
+
+      // Read per-run blobs from IndexedDB and parse them back.
+      const runBlobs = await getRunBlobs(r.suiteId, r.reports.length);
+      const trackingReports: SimulationTrackingReport[] = [];
+
+      for (let i = 0; i < r.reports.length; i++) {
+        const blob = runBlobs[i];
+        if (blob) {
+          try {
+            const text = await blob.text();
+            trackingReports.push(JSON.parse(text) as SimulationTrackingReport);
+          } catch {
+            console.warn(`Failed to parse run blob ${i}, using empty report`);
+            trackingReports.push({} as SimulationTrackingReport);
+          }
+        } else {
+          console.warn(`Missing run blob ${i}, using empty report`);
+          trackingReports.push({} as SimulationTrackingReport);
+        }
+      }
 
       const suiteExport: BenchmarkSuiteExport = {
         schemaVersion: "websimbench.benchmark.v1",
@@ -736,7 +825,7 @@ export function useBenchmark() {
         sourceCode: r.sourceCode,
         config: r.configSnapshot,
         runCount: r.reports.length,
-        runs: r.reports.map((run) => ({
+        runs: r.reports.map((run, i) => ({
           status: run.status,
           method: run.method,
           renderMode: run.renderMode,
@@ -746,7 +835,7 @@ export function useBenchmark() {
           executedFrames: run.executedFrames,
           summary: run.summary,
           error: run.error,
-          trackingReport: run.report,
+          trackingReport: trackingReports[i],
         })),
       };
 

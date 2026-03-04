@@ -13,7 +13,7 @@ import { useSimulationRunner } from "../hooks/useSimulationRunner";
 import { useLogger } from "../hooks/useLogger";
 import { useObstacles } from "../hooks/useObstacles";
 import { useBenchmark } from "../hooks/useBenchmark";
-import { useBenchmarkDB } from "../hooks/useBenchmarkDB";
+import { useBenchmarkDB, getRunBlob } from "../hooks/useBenchmarkDB";
 
 import { useState, useCallback } from "react";
 import { Gear } from "@phosphor-icons/react";
@@ -96,20 +96,22 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
     );
     if (res) {
       // Auto-save to IndexedDB
-      const { entry, combinedBlob } = benchmark.buildEntry(res);
+      const { entry, combinedBlob } = await benchmark.buildEntry(res);
       await benchmarkDB.saveBenchmark(entry, combinedBlob);
     }
   }, [code, benchmark, canvasRef, gpuCanvasRef, benchmarkDB, simulationName]);
 
   const handleBenchmarkDownload = useCallback(
-    (index: number) => {
+    async (index: number) => {
       if (!benchmark.result) return;
       const r = benchmark.result.reports[index];
       if (!r) return;
+      const blob = await getRunBlob(r.runBlobKey);
+      if (!blob) return;
       const simSlug = slugify(
         benchmark.result.simulationName || simulationName,
       );
-      const url = URL.createObjectURL(r.reportBlob);
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `${simSlug}_${r.method.toLowerCase()}_${r.agentCount}.json`;
@@ -119,9 +121,9 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
     [benchmark.result, simulationName],
   );
 
-  const handleBenchmarkDownloadFullReport = useCallback(() => {
+  const handleBenchmarkDownloadFullReport = useCallback(async () => {
     if (!benchmark.result) return;
-    const { combinedBlob } = benchmark.buildEntry(benchmark.result);
+    const { combinedBlob } = await benchmark.buildEntry(benchmark.result);
     const simSlug = slugify(benchmark.result.simulationName || simulationName);
     const url = URL.createObjectURL(combinedBlob);
     const a = document.createElement("a");
@@ -133,7 +135,9 @@ export const Home = ({ options, updateOption, resetOptions }: HomeProps) => {
 
   const handleBenchmarkSave = useCallback(async () => {
     if (!benchmark.result) return;
-    const { entry, combinedBlob } = benchmark.buildEntry(benchmark.result);
+    const { entry, combinedBlob } = await benchmark.buildEntry(
+      benchmark.result,
+    );
     await benchmarkDB.saveBenchmark(entry, combinedBlob);
   }, [benchmark, benchmarkDB]);
 
