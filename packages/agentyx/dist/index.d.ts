@@ -970,6 +970,7 @@ declare class Simulation {
   private readonly computeEngine;
   private readonly source;
   private readonly tracker;
+  private readonly randomFn;
   private renderer;
   private width;
   private height;

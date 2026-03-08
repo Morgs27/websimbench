@@ -192,6 +192,7 @@ export class Simulation {
   private readonly computeEngine: ComputeEngine;
   private readonly source: SimulationSource;
   private readonly tracker: SimulationTracker;
+  private readonly randomFn: () => number;
 
   private renderer: Renderer | null = null;
   private width: number;
@@ -278,10 +279,14 @@ export class Simulation {
       );
     }
 
+    this.randomFn =
+      typeof options.seed === "number"
+        ? createSeededRandom(options.seed)
+        : Math.random;
+
     this.agents = this.createInitialAgents(
       options.agents,
       compilationResult.speciesCount ?? 1,
-      options.seed,
     );
 
     this.tracker = new SimulationTracker({
@@ -303,20 +308,13 @@ export class Simulation {
    * @param seed - Optional PRNG seed for reproducible placement.
    * @returns Array of initialised agents.
    */
-  private createInitialAgents(
-    count: number,
-    speciesCount: number,
-    seed?: number,
-  ): Agent[] {
-    const random =
-      typeof seed === "number" ? createSeededRandom(seed) : Math.random;
-
+  private createInitialAgents(count: number, speciesCount: number): Agent[] {
     return Array.from({ length: count }, (_, index) => ({
       id: index,
-      x: random() * this.width,
-      y: random() * this.height,
-      vx: (random() - 0.5) * 2,
-      vy: (random() - 0.5) * 2,
+      x: this.randomFn() * this.width,
+      y: this.randomFn() * this.height,
+      vx: (this.randomFn() - 0.5) * 2,
+      vy: (this.randomFn() - 0.5) * 2,
       species: index % Math.max(speciesCount, 1),
     }));
   }
@@ -351,7 +349,7 @@ export class Simulation {
     }
 
     for (let i = 0; i < totalRandomValues; i++) {
-      this.randomValues[i] = Math.random();
+      this.randomValues[i] = this.randomFn();
     }
   }
 

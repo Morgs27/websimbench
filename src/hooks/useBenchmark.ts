@@ -489,8 +489,10 @@ export function useBenchmark() {
           agents: number;
           workers?: number;
           wasmExecutionMode?: WasmExecutionMode;
+          seed: number;
         } = {
           agents: run.agentCount,
+          seed: 12345,
         };
         if (typeof run.workerCount === "number") {
           simOptions.workers = run.workerCount;

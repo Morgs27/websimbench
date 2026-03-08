@@ -4627,7 +4627,9 @@ var withSimdMemcpyHelper = (watCode) => {
   }
   const moduleEnd = watCode.lastIndexOf(")");
   if (moduleEnd === -1) {
-    throw new Error("Invalid WAT module: missing closing ')' for SIMD helper injection.");
+    throw new Error(
+      "Invalid WAT module: missing closing ')' for SIMD helper injection."
+    );
   }
   return `${watCode.slice(0, moduleEnd)}
 ${SIMD_MEMCPY_WAT_HELPER}
@@ -6171,16 +6173,40 @@ var collectGpuMetrics = async () => {
     const device = await gpuHelper.getDevice();
     const adapter = await navigator.gpu.requestAdapter();
     let adapterInfo = null;
-    if (adapter && "requestAdapterInfo" in adapter && typeof adapter.requestAdapterInfo === "function") {
+    if (adapter && "info" in adapter && typeof adapter.info === "object") {
+      adapterInfo = adapter.info;
+    } else if (adapter && "requestAdapterInfo" in adapter && typeof adapter.requestAdapterInfo === "function") {
       adapterInfo = await adapter.requestAdapterInfo() ?? null;
     }
     if (!device) {
       return void 0;
     }
+    let description = adapterInfo?.description && adapterInfo.description.trim() !== "" ? adapterInfo.description : "Unknown";
+    const vendor = adapterInfo?.vendor && adapterInfo.vendor.trim() !== "" ? adapterInfo.vendor : "Unknown";
+    if (isBrowserRuntime() && (description === "Unknown" || vendor.toLowerCase() === "apple")) {
+      try {
+        const canvas = document.createElement("canvas");
+        const gl = canvas.getContext("webgl") || canvas.getContext(
+          "experimental-webgl"
+        );
+        if (gl) {
+          const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+          if (debugInfo) {
+            const unmaskedRenderer = gl.getParameter(
+              debugInfo.UNMASKED_RENDERER_WEBGL
+            );
+            if (typeof unmaskedRenderer === "string" && unmaskedRenderer) {
+              description = unmaskedRenderer;
+            }
+          }
+        }
+      } catch {
+      }
+    }
     return {
-      vendor: adapterInfo?.vendor ?? "Unknown",
+      vendor,
       architecture: adapterInfo?.architecture ?? "Unknown",
-      description: adapterInfo?.description ?? "Unknown",
+      description,
       maxBufferSize: device.limits.maxBufferSize,
       maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize,
       maxComputeWorkgroupsPerDimension: device.limits.maxComputeWorkgroupsPerDimension,
@@ -7103,10 +7129,10 @@ var Simulation = class {
         this.appearance
       );
     }
+    this.randomFn = typeof options.seed === "number" ? createSeededRandom(options.seed) : Math.random;
     this.agents = this.createInitialAgents(
       options.agents,
-      compilationResult.speciesCount ?? 1,
-      options.seed
+      compilationResult.speciesCount ?? 1
     );
     this.tracker = new SimulationTracker({
       source: this.source,
@@ -7125,14 +7151,13 @@ var Simulation = class {
    * @param seed - Optional PRNG seed for reproducible placement.
    * @returns Array of initialised agents.
    */
-  createInitialAgents(count, speciesCount, seed) {
-    const random = typeof seed === "number" ? createSeededRandom(seed) : Math.random;
+  createInitialAgents(count, speciesCount) {
     return Array.from({ length: count }, (_, index) => ({
       id: index,
-      x: random() * this.width,
-      y: random() * this.height,
-      vx: (random() - 0.5) * 2,
-      vy: (random() - 0.5) * 2,
+      x: this.randomFn() * this.width,
+      y: this.randomFn() * this.height,
+      vx: (this.randomFn() - 0.5) * 2,
+      vy: (this.randomFn() - 0.5) * 2,
       species: index % Math.max(speciesCount, 1)
     }));
   }
@@ -7162,7 +7187,7 @@ var Simulation = class {
       this.randomValues = new Float32Array(totalRandomValues);
     }
     for (let i = 0; i < totalRandomValues; i++) {
-      this.randomValues[i] = Math.random();
+      this.randomValues[i] = this.randomFn();
     }
   }
   /**
