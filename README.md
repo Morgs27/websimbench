@@ -12,7 +12,7 @@
 
 ---
 
-## 🚀 Live Demo & Documentation
+## Live Demo & Documentation
 
 Explore the interactive sandbox and view the full documentation at:
 
@@ -20,13 +20,13 @@ Explore the interactive sandbox and view the full documentation at:
 
 Experience the engine directly in your browser without any installation. The live site features interactive premade simulations, an in-browser code editor, and the complete versioned documentation.
 
-## ✨ About the Project
+## About the Project
 
 WebSimBench is the official sandbox and graphical interface for the **Agentyx** engine. It provides an intuitive, high-performance web application designed for exploring, building, and benchmarking massive agent-based models right in the browser.
 
 Through the platform, users can switch between JavaScript, WebAssembly, and full GPU-accelerated computing seamlessly.
 
-### 📦 The Agentyx NPM Package
+### The Agentyx NPM Package
 
 The core engine powering WebSimBench is available as a standalone NPM package: `@websimbench/agentyx`.
 
@@ -40,7 +40,7 @@ Check out the [Agentyx Package Readme](./packages/agentyx/README.md) for full in
 
 ---
 
-## 📽️ In-Browser Execution
+## In-Browser Execution
 
 Watch how WebSimBench runs thousands of agents in real-time, completely client-side:
 
@@ -52,7 +52,7 @@ _A live recording demonstrating emergent behavior in the Slime Mold simulation m
 
 ---
 
-## 🛠️ Getting Started Locally
+## Getting Started Locally
 
 Want to run the WebSimBench platform securely on your own machine, or contribute to its development? Here's how to spin it up:
 
@@ -87,6 +87,6 @@ Want to run the WebSimBench platform securely on your own machine, or contribute
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 We welcome community discussion and contributions! If you have ideas, open an issue or submit a pull request.
