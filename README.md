@@ -35,38 +35,46 @@ Real emergent behaviour produced by the Agentyx DSL, running at 60fps on commodi
 <table>
 <tr>
 <td align="center" width="25%">
+<a href="https://github.com/Morgs27/dissertation/blob/master/videos/slime.md">
 <img src="assets/slime.png" alt="Slime Mold" width="100%" />
-<br/><b>Slime Mold</b>
+<br/><b>Slime Mold</b></a>
 </td>
 <td align="center" width="25%">
+<a href="https://github.com/Morgs27/dissertation/blob/master/videos/fire-sim.md">
 <img src="assets/fire.png" alt="Fire Spread" width="100%" />
-<br/><b>Fire</b>
+<br/><b>Fire</b></a>
 </td>
 <td align="center" width="25%">
+<a href="https://github.com/Morgs27/dissertation/blob/master/videos/boids.md">
 <img src="assets/boids.png" alt="Boids Flocking" width="100%" />
-<br/><b>Boids</b>
+<br/><b>Boids</b></a>
 </td>
 <td align="center" width="25%">
+<a href="https://github.com/Morgs27/dissertation/blob/master/videos/cosmic.md">
 <img src="assets/cosmic.png" alt="Cosmic" width="100%" />
-<br/><b>Cosmic</b>
+<br/><b>Cosmic</b></a>
 </td>
 </tr>
 <tr>
 <td align="center" width="25%">
+<a href="https://github.com/Morgs27/dissertation/blob/master/videos/fluid.md">
 <img src="assets/fluid.png" alt="Fluid Dynamics" width="100%" />
-<br/><b>Fluid</b>
+<br/><b>Fluid</b></a>
 </td>
 <td align="center" width="25%">
+<a href="https://github.com/Morgs27/dissertation/blob/master/videos/rain.md">
 <img src="assets/rain.png" alt="Rainfall" width="100%" />
-<br/><b>Rain</b>
+<br/><b>Rain</b></a>
 </td>
 <td align="center" width="25%">
+<a href="https://github.com/Morgs27/dissertation/blob/master/videos/predator-prey.md">
 <img src="assets/predator.png" alt="Predator-Prey" width="100%" />
-<br/><b>Predator-Prey</b>
+<br/><b>Predator-Prey</b></a>
 </td>
 <td align="center" width="25%">
+<a href="https://github.com/Morgs27/dissertation/blob/master/videos/traffic.md">
 <img src="assets/traffic.png" alt="Traffic Flow" width="100%" />
-<br/><b>Traffic</b>
+<br/><b>Traffic</b></a>
 </td>
 </tr>
 </table>
