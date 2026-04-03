@@ -91,15 +91,15 @@ Check out the following examples in the `examples/` directory to see Agentyx in 
 
 **Basic Setup**
 
-- [JavaScript Backend](./examples/basic-setup/example-js.html)
-- [WebWorkers Backend](./examples/basic-setup/example-workers.html)
-- [WebAssembly Backend](./examples/basic-setup/example-wasm.html)
-- [WebGPU Backend](./examples/basic-setup/example-webgpu.html)
+- [JavaScript Backend](https://github.com/Morgs27/websimbench/blob/master/packages/agentyx/examples/basic-setup/example-js.html)
+- [WebWorkers Backend](https://github.com/Morgs27/websimbench/blob/master/packages/agentyx/examples/basic-setup/example-workers.html)
+- [WebAssembly Backend](https://github.com/Morgs27/websimbench/blob/master/packages/agentyx/examples/basic-setup/example-wasm.html)
+- [WebGPU Backend](https://github.com/Morgs27/websimbench/blob/master/packages/agentyx/examples/basic-setup/example-webgpu.html)
 
 **Features**
 
-- [Advanced Demo](./examples/features/advanced-demo.html)
-- [Benchmark Data](./examples/features/benchmark-data.html)
-- [Changing Style](./examples/features/changing-style.html)
-- [FPS Counter](./examples/features/fps-counter.html)
-- [Realtime Sliders](./examples/features/realtime-sliders.html)
+- [Advanced Demo](https://github.com/Morgs27/websimbench/blob/master/packages/agentyx/examples/features/advanced-demo.html)
+- [Benchmark Data](https://github.com/Morgs27/websimbench/blob/master/packages/agentyx/examples/features/benchmark-data.html)
+- [Changing Style](https://github.com/Morgs27/websimbench/blob/master/packages/agentyx/examples/features/changing-style.html)
+- [FPS Counter](https://github.com/Morgs27/websimbench/blob/master/packages/agentyx/examples/features/fps-counter.html)
+- [Realtime Sliders](https://github.com/Morgs27/websimbench/blob/master/packages/agentyx/examples/features/realtime-sliders.html)
